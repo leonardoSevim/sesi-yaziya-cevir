@@ -6,7 +6,6 @@ const { promisify } = require('util');
 const writeFileAsync = promisify(fs.writeFile);
 const unlinkAsync = promisify(fs.unlink);
 const FormData = require('form-data');
-const fetch = require('node-fetch');
 
 // Hızlı bir şekilde farklı API sağlayıcıları ile çalışabilmek için bir wrapper
 class TranscriptionService {
@@ -57,6 +56,9 @@ class TranscriptionService {
         throw new Error('HUGGINGFACE_API_KEY çevre değişkeni ayarlanmamış');
       }
 
+      // Node-fetch'i dinamik olarak import et
+      const fetch = (await import('node-fetch')).default;
+
       // Geçici dosya oluştur
       const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
       await writeFileAsync(tempFilePath, audioBuffer);
@@ -91,7 +93,7 @@ class TranscriptionService {
             modelEndpoint = 'https://api-inference.huggingface.co/models/jonatasgrosman/wav2vec2-large-xlsr-53-turkish';
             break;
           default:
-            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3';
+            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-small';
         }
       }
 
@@ -178,7 +180,7 @@ exports.handler = async function(event, context) {
     const base64Audio = body.audio;
     const language = body.language || 'tr';
     const provider = body.provider || 'openai';
-    const model = body.model; // Model seçimi
+    const model = body.model || 'whisper-small'; // Varsayılan olarak whisper-small kullan
     
     if (!base64Audio) {
       return {
