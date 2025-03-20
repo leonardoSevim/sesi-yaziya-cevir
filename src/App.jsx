@@ -1,3 +1,4 @@
+// Ana uygulama bileşeni
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -19,4 +20,4 @@ function App() {
   );
 }
 
-export default App;
+export default App; 
