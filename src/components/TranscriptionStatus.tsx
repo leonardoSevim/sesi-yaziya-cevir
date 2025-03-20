@@ -17,17 +17,32 @@ const TranscriptionStatus: React.FC = () => {
 
   const attemptTranscription = useCallback(async (file: File) => {
     try {
+      setStatus('processing');
+      setError(null);
+      setProgress(10); // İlk ilerleme
+      
       const finalText = await transcribeAudio(file, (interim) => {
         setInterimResult(interim);
         setProgress(90);
       });
+      
       setResult(finalText);
       setStatus('completed');
       setProgress(100);
     } catch (err: any) {
       console.error('Transcription failed:', err);
-      setError(err.message);
+      let errorMessage = err.message || 'Bilinmeyen bir hata oluştu';
+      
+      // Daha kullanıcı dostu hata mesajları
+      if (errorMessage.includes('is not valid JSON')) {
+        errorMessage = 'Model yüklenirken bağlantı hatası oluştu. Lütfen internet bağlantınızı kontrol edin ve sayfayı yenileyin.';
+      } else if (errorMessage.includes('Failed to fetch')) {
+        errorMessage = 'Model indirilemedi. İnternet bağlantınızı kontrol edin ve sayfayı yenileyin.';
+      }
+      
+      setError(errorMessage);
       setStatus('failed');
+      setProgress(0);
     }
   }, []);
 

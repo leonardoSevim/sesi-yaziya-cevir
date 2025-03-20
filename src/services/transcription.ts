@@ -9,10 +9,15 @@ import * as ort from 'onnxruntime-web';
 
 // Configure ONNX runtime - düzeltilmiş yollar
 env.backends.onnx.wasm.wasmPaths = {
-  'ort-wasm.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm.wasm',
-  'ort-wasm-simd.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-simd.wasm',
-  'ort-wasm-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort-wasm-threaded.wasm'
+  'ort-wasm.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm.wasm',
+  'ort-wasm-simd.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd.wasm',
+  'ort-wasm-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-threaded.wasm'
 };
+
+// Model ve token ayarları
+env.allowLocalModels = false;
+env.useCDN = true;
+env.remoteHost = 'https://huggingface.co';
 
 // Register ONNX backend
 if (ort.env) {
@@ -31,15 +36,25 @@ export interface TranscriptionResult {
 
 async function initializePipeline() {
   if (!transcriptionPipeline) {
-    transcriptionPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', {
-      revision: 'main',
-      quantized: true,
-      local: false,
-      cache_dir: './model-cache',
-      progress_callback: (progress) => {
-        console.log(`Model yükleniyor: ${Math.round(progress.progress * 100)}%`);
-      }
-    });
+    try {
+      console.log("Pipeline başlatılıyor...");
+      transcriptionPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', {
+        revision: 'main',
+        quantized: true,
+        cache_dir: '/tmp/models',
+        progress_callback: (progress) => {
+          if (progress && progress.progress) {
+            const percentage = Math.round(progress.progress * 100);
+            console.log(`Model yükleniyor: ${percentage}%`);
+          }
+        }
+      });
+      console.log("Pipeline başarıyla başlatıldı!");
+      return transcriptionPipeline;
+    } catch (error) {
+      console.error("Pipeline başlatılamadı:", error);
+      throw error;
+    }
   }
   return transcriptionPipeline;
 }
