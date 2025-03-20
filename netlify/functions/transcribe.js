@@ -1,10 +1,10 @@
-import { OpenAI } from 'openai';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { promisify } from 'util';
-import FormData from 'form-data';
-import nodeFetch from 'node-fetch';
+const { OpenAI } = require('openai');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { promisify } = require('util');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
 
 const writeFileAsync = promisify(fs.writeFile);
 const unlinkAsync = promisify(fs.unlink);
@@ -107,7 +107,7 @@ class TranscriptionService {
           console.log(`HuggingFace API isteği gönderiliyor (Deneme ${retryCount + 1}/${maxRetries})...`);
           
           // HuggingFace API'ya gönder
-          response = await nodeFetch(
+          response = await fetch(
             modelEndpoint,
             {
               method: 'POST',
@@ -157,7 +157,7 @@ class TranscriptionService {
 }
 
 // Netlify Function handler
-const handler = async function(event, context) {
+exports.handler = async function(event, context) {
   // POST isteği değilse hata ver
   if (event.httpMethod !== 'POST') {
     return {
@@ -231,6 +231,4 @@ const handler = async function(event, context) {
       })
     };
   }
-};
-
-export { handler }; 
+}; 

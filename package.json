@@ -2,7 +2,6 @@
   "name": "sesi-yaziya-cevir",
   "private": true,
   "version": "1.0.0",
-  "type": "module",
   "description": "Türkçe ses dosyalarını yazıya çeviren, tarayıcı tabanlı ücretsiz uygulama",
   "scripts": {
     "dev": "vite",
@@ -15,7 +14,7 @@
     "fluent-ffmpeg": "^2.1.3",
     "form-data": "^4.0.2",
     "lucide-react": "^0.344.0",
-    "node-fetch": "^3.3.2",
+    "node-fetch": "^2.6.9",
     "openai": "^4.88.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
