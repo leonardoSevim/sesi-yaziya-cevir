@@ -142,23 +142,25 @@ class TranscriptionService {
           const tempFilePath = path.join(os.tmpdir(), `audio-chunk-${index}-${Date.now()}.mp3`);
           await writeFileAsync(tempFilePath, chunk);
 
-          const form = new FormData();
-          form.append('audio_file', fs.createReadStream(tempFilePath));
-          form.append('language', options.language || 'tr');
-
           // Her zaman en küçük modeli kullan - timeout riskini azaltmak için
-          const modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-tiny';
+          const modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-small';
 
           // API timeout riskleri için zaman kontrolü
-          const maxApiTimeSeconds = 7; // maksimum 7 saniye API'de bekle
+          const maxApiTimeSeconds = 15; // maksimum 15 saniye API'de bekle
           let isTimeout = false;
           const timeoutId = setTimeout(() => {
             isTimeout = true;
             console.log(`Parça ${index + 1} için zaman aşımı (${maxApiTimeSeconds}s)`);
           }, maxApiTimeSeconds * 1000);
 
+          // Form verilerini hazırla
+          const formData = new FormData();
+          formData.append('file', fs.createReadStream(tempFilePath));
+          formData.append('model', options.model || 'whisper-small');
+          formData.append('language', options.language || 'tr');
+
           // 502 hataları için yeniden deneme mekanizması
-          const maxRetries = 2; // max 2 deneme
+          const maxRetries = 3; // max 3 deneme
           let retryCount = 0;
           let response = null;
           let lastError = null;
@@ -172,8 +174,8 @@ class TranscriptionService {
                 headers: {
                   'Authorization': `Bearer ${this.apiKey}`
                 },
-                body: form,
-                timeout: 5000 // 5 saniye timeout
+                body: formData,
+                timeout: 10000 // 10 saniye timeout
               });
               
               if (response.ok) {
