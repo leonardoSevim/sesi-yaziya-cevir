@@ -8,9 +8,12 @@ import {
   Check, 
   Cpu, 
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import WhisperService from '../services/whisperService';
+import OfflineTranscriptionService from '../services/offlineTranscriptionService';
 
 const HomePage = () => {
   const [transcription, setTranscription] = useState('');
@@ -20,22 +23,42 @@ const HomePage = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedModel, setSelectedModel] = useState('whisper-small');
   const [modelLoading, setModelLoading] = useState(false);
+  const [offlineMode, setOfflineMode] = useState(false);
+  const [modelLoadAttempted, setModelLoadAttempted] = useState(false);
 
   // Whisper modelini yükleyen fonksiyon
   const initializeWhisperModel = async () => {
     try {
       setModelLoading(true);
+      setError(null);
       await WhisperService.initialize();
+      setOfflineMode(false);
+      console.log('Online model başarıyla yüklendi');
     } catch (err) {
-      setError('Model yüklenirken bir hata oluştu: ' + err.message);
+      console.error('Model başlatma hatası:', err);
+      // Eğer model yüklenemezse, offline moda geç
+      setOfflineMode(true);
+      // Offline modeli hazırla
+      await OfflineTranscriptionService.initialize();
+      console.log('Offline moda geçildi');
+      
+      // Kullanıcıya bilgi ver
+      setError('Model yüklenemedi. Offline demo modunda çalışılıyor. Bu modda gerçek transkripsiyon yapılamaz, sadece örnek çıktılar gösterilir.');
     } finally {
       setModelLoading(false);
+      setModelLoadAttempted(true);
     }
   };
 
   // Sayfa yüklendiğinde modeli hazırla
   useEffect(() => {
+    // Sayfa yüklenince modeli yüklemeye başla
     initializeWhisperModel();
+    
+    // Sayfa kapatılırken temizlik yap
+    return () => {
+      // Temizlik işlemleri gerekirse buraya eklenebilir
+    };
   }, []);
 
   const processAudio = async (file) => {
@@ -47,18 +70,80 @@ const HomePage = () => {
       setProgress(10);
       setTranscription('');
 
-      // Model yüklenirken progress göster
+      // Model parametrelerini belirle
+      const modelParam = selectedModel === 'whisper-medium' ? 'medium' : 'small';
+      
+      // İlerleme göster
       setProgress(30);
       
-      const result = await WhisperService.transcribe(file, {
-        language: 'turkish',
-        model: selectedModel
-      });
+      let result;
       
-      setTranscription(result.text);
-      setProgress(100);
+      if (offlineMode) {
+        // Offline modda işlem yap
+        console.log('Offline modda ses işleniyor...');
+        setProgress(50);
+        result = await OfflineTranscriptionService.transcribe(file, {
+          language: 'turkish',
+          model: modelParam
+        });
+      } else {
+        // Online modda işlem yap
+        // Yükleme esnasında modeli tekrar başlatmaya gerek yok
+        if (!WhisperService.transcriber && !WhisperService.isLoading && !modelLoading) {
+          await initializeWhisperModel();
+        }
+        
+        setProgress(50);
+        
+        // Eğer model yüklemesi offline moda geçtiyse
+        if (offlineMode) {
+          result = await OfflineTranscriptionService.transcribe(file, {
+            language: 'turkish',
+            model: modelParam
+          });
+        } else {
+          result = await WhisperService.transcribe(file, {
+            language: 'turkish',
+            model: modelParam
+          });
+        }
+      }
+      
+      if (result && result.text) {
+        setTranscription(result.text);
+        setProgress(100);
+        
+        // Offline sonuç uyarısı
+        if (result.isOfflineResult) {
+          setError('Bu sonuç gerçek değil! Offline demo modunda çalışıyorsunuz. Gerçek transkripsiyon için internet bağlantısı gereklidir.');
+        } else {
+          setError(null);
+        }
+      } else {
+        throw new Error('Ses dosyasından metin elde edilemedi.');
+      }
     } catch (err) {
-      setError(err.message || 'Ses dosyası işlenirken bir hata oluştu');
+      console.error('İşleme hatası:', err);
+      
+      // Eğer online modda hata alındıysa offline moda geç
+      if (!offlineMode) {
+        setOfflineMode(true);
+        await OfflineTranscriptionService.initialize();
+        setError('Online işleme sırasında hata oluştu. Offline demo moduna geçildi. Bu modda gerçek transkripsiyon yapılamaz.');
+        
+        // Offline modda işlemi tekrar dene
+        setProgress(30);
+        const offlineResult = await OfflineTranscriptionService.transcribe(file, {
+          language: 'turkish'
+        });
+        
+        if (offlineResult && offlineResult.text) {
+          setTranscription(offlineResult.text);
+          setProgress(100);
+        }
+      } else {
+        setError(err.message || 'Ses dosyası işlenirken bir hata oluştu');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -100,9 +185,22 @@ const HomePage = () => {
         <div className="flex items-center gap-2 mb-2">
           <Cpu className="w-6 h-6 text-purple-500" />
           <h3 className="font-semibold text-lg">Tarayıcı İşleme</h3>
+          {offlineMode ? (
+            <span className="bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
+              <WifiOff className="w-3 h-3 mr-1" />
+              Offline Demo
+            </span>
+          ) : modelLoadAttempted ? (
+            <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
+              <Wifi className="w-3 h-3 mr-1" />
+              Online
+            </span>
+          ) : null}
         </div>
         <p className="text-sm text-gray-600">
-          Ses dosyanız tamamen cihazınızda işlenir. Hızlı, gizli ve internet bağlantısına bağlı değil.
+          {offlineMode 
+            ? 'Offline demo modunda çalışıyorsunuz. Gerçek transkripsiyon için internet bağlantınızı kontrol edin.'
+            : 'Ses dosyanız tamamen cihazınızda işlenir. Hızlı, gizli ve tamamen ücretsiz.'}
         </p>
       </div>
 
