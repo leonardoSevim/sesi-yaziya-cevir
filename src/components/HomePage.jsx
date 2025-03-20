@@ -7,13 +7,14 @@ import {
   AlertCircle, 
   Check, 
   Cpu, 
-  ZoomIn,
-  ZoomOut,
   Wifi,
-  WifiOff
+  WifiOff,
+  Globe,
+  Server
 } from 'lucide-react';
 import WhisperService from '../services/whisperService';
 import OfflineTranscriptionService from '../services/offlineTranscriptionService';
+import ApiWhisperService from '../services/apiWhisperService';
 
 const HomePage = () => {
   const [transcription, setTranscription] = useState('');
@@ -25,15 +26,27 @@ const HomePage = () => {
   const [modelLoading, setModelLoading] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
   const [modelLoadAttempted, setModelLoadAttempted] = useState(false);
+  const [processingMode, setProcessingMode] = useState('browser'); // 'browser' veya 'api'
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
 
   // Whisper modelini yükleyen fonksiyon
   const initializeWhisperModel = async () => {
     try {
       setModelLoading(true);
       setError(null);
-      await WhisperService.initialize();
-      setOfflineMode(false);
-      console.log('Online model başarıyla yüklendi');
+      
+      if (processingMode === 'browser') {
+        // Tarayıcı modu - Whisper.js
+        await WhisperService.initialize();
+        setOfflineMode(false);
+        console.log('Online model başarıyla yüklendi');
+      } else {
+        // API modu
+        await ApiWhisperService.initialize();
+        setOfflineMode(false);
+        console.log('API servisi başarıyla yüklendi');
+      }
     } catch (err) {
       console.error('Model başlatma hatası:', err);
       // Eğer model yüklenemezse, offline moda geç
@@ -59,7 +72,7 @@ const HomePage = () => {
     return () => {
       // Temizlik işlemleri gerekirse buraya eklenebilir
     };
-  }, []);
+  }, [processingMode]); // İşleme modu değiştiğinde yeniden yükle
 
   const processAudio = async (file) => {
     if (!file) return;
@@ -83,28 +96,38 @@ const HomePage = () => {
         console.log('Offline modda ses işleniyor...');
         setProgress(50);
         result = await OfflineTranscriptionService.transcribe(file, {
-          language: 'turkish',
+          language: 'auto',
           model: modelParam
         });
       } else {
         // Online modda işlem yap
-        // Yükleme esnasında modeli tekrar başlatmaya gerek yok
-        if (!WhisperService.transcriber && !WhisperService.isLoading && !modelLoading) {
-          await initializeWhisperModel();
-        }
-        
-        setProgress(50);
-        
-        // Eğer model yüklemesi offline moda geçtiyse
-        if (offlineMode) {
-          result = await OfflineTranscriptionService.transcribe(file, {
-            language: 'turkish',
-            model: modelParam
-          });
+        if (processingMode === 'browser') {
+          // Tarayıcı modunda Whisper.js kullan
+          // Yükleme esnasında modeli tekrar başlatmaya gerek yok
+          if (!WhisperService.transcriber && !WhisperService.isLoading && !modelLoading) {
+            await initializeWhisperModel();
+          }
+          
+          setProgress(50);
+          
+          // Eğer model yüklemesi offline moda geçtiyse
+          if (offlineMode) {
+            result = await OfflineTranscriptionService.transcribe(file, {
+              language: 'auto',
+              model: modelParam
+            });
+          } else {
+            result = await WhisperService.transcribe(file, {
+              language: 'auto', // Auto ile kendisi dili tespit etsin
+              model: modelParam
+            });
+          }
         } else {
-          result = await WhisperService.transcribe(file, {
-            language: 'turkish',
-            model: modelParam
+          // API modunda işlem yap
+          setProgress(50);
+          result = await ApiWhisperService.transcribe(file, {
+            language: 'auto',
+            apiKey: apiKey // OpenAI API anahtarı varsa ekle
           });
         }
       }
@@ -134,7 +157,7 @@ const HomePage = () => {
         // Offline modda işlemi tekrar dene
         setProgress(30);
         const offlineResult = await OfflineTranscriptionService.transcribe(file, {
-          language: 'turkish'
+          language: 'auto'
         });
         
         if (offlineResult && offlineResult.text) {
@@ -171,6 +194,14 @@ const HomePage = () => {
     }
   };
 
+  const toggleProcessingMode = (mode) => {
+    if (mode !== processingMode) {
+      setProcessingMode(mode);
+      setOfflineMode(false);
+      setModelLoadAttempted(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-4">
       <div className="mb-8">
@@ -180,63 +211,128 @@ const HomePage = () => {
         </p>
       </div>
 
-      {/* Tek servis seçeneği - tarayıcı tarafında */}
-      <div className="bg-white/10 p-4 rounded-lg border border-purple-300/20 shadow-md">
-        <div className="flex items-center gap-2 mb-2">
-          <Cpu className="w-6 h-6 text-purple-500" />
-          <h3 className="font-semibold text-lg">Tarayıcı İşleme</h3>
-          {offlineMode ? (
-            <span className="bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
-              <WifiOff className="w-3 h-3 mr-1" />
-              Offline Demo
-            </span>
-          ) : modelLoadAttempted ? (
-            <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
-              <Wifi className="w-3 h-3 mr-1" />
-              Online
-            </span>
-          ) : null}
-        </div>
-        <p className="text-sm text-gray-600">
-          {offlineMode 
-            ? 'Offline demo modunda çalışıyorsunuz. Gerçek transkripsiyon için internet bağlantınızı kontrol edin.'
-            : 'Ses dosyanız tamamen cihazınızda işlenir. Hızlı, gizli ve tamamen ücretsiz.'}
-        </p>
-      </div>
-
-      {/* Basitleştirilmiş model seçimi */}
-      <div className="mt-6">
-        <h3 className="text-lg font-semibold mb-3 text-center text-purple-600">Model Seçimi</h3>
+      {/* İşleme Modu Seçimi */}
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold mb-3 text-center text-purple-600">İşleme Modu</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button 
             className={`p-4 rounded-lg border transition-all flex flex-col items-center ${
-              selectedModel === 'whisper-small' 
+              processingMode === 'browser' 
                 ? 'bg-gradient-to-r from-purple-100 to-purple-200 border-purple-400 shadow-md' 
                 : 'bg-white/50 border-gray-200 hover:border-purple-300'
             }`}
-            onClick={() => setSelectedModel('whisper-small')}
+            onClick={() => toggleProcessingMode('browser')}
           >
-            <div className={`font-medium ${selectedModel === 'whisper-small' ? 'text-purple-600' : 'text-gray-700'}`}>
-              Whisper Small
+            <div className="flex items-center gap-2">
+              <Cpu className="w-6 h-6 text-purple-500" />
+              <div className={`font-medium ${processingMode === 'browser' ? 'text-purple-600' : 'text-gray-700'}`}>
+                Tarayıcı İşleme
+              </div>
+              
+              {processingMode === 'browser' && (
+                offlineMode ? (
+                  <span className="bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
+                    <WifiOff className="w-3 h-3 mr-1" />
+                    Offline Demo
+                  </span>
+                ) : modelLoadAttempted ? (
+                  <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
+                    <Wifi className="w-3 h-3 mr-1" />
+                    Online
+                  </span>
+                ) : null
+              )}
             </div>
-            <div className="text-xs text-gray-600 mt-1">Hafif model, hızlı sonuç (küçük)</div>
+            <p className="text-sm text-gray-600 mt-2">
+              {offlineMode && processingMode === 'browser'
+                ? 'Offline demo modunda çalışıyorsunuz. Gerçek transkripsiyon için internet bağlantınızı kontrol edin.'
+                : 'Ses dosyanız tamamen cihazınızda işlenir. Hızlı, gizli ve tamamen ücretsiz.'}
+            </p>
           </button>
 
           <button 
             className={`p-4 rounded-lg border transition-all flex flex-col items-center ${
-              selectedModel === 'whisper-medium' 
+              processingMode === 'api' 
                 ? 'bg-gradient-to-r from-indigo-100 to-indigo-200 border-indigo-400 shadow-md' 
                 : 'bg-white/50 border-gray-200 hover:border-indigo-300'
             }`}
-            onClick={() => setSelectedModel('whisper-medium')}
+            onClick={() => toggleProcessingMode('api')}
           >
-            <div className={`font-medium ${selectedModel === 'whisper-medium' ? 'text-indigo-600' : 'text-gray-700'}`}>
-              Whisper Medium
+            <div className="flex items-center gap-2">
+              <Server className="w-6 h-6 text-indigo-500" />
+              <div className={`font-medium ${processingMode === 'api' ? 'text-indigo-600' : 'text-gray-700'}`}>
+                API İşleme
+              </div>
+              
+              {processingMode === 'api' && modelLoadAttempted && !offlineMode && (
+                <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
+                  <Globe className="w-3 h-3 mr-1" />
+                  API Hazır
+                </span>
+              )}
             </div>
-            <div className="text-xs text-gray-600 mt-1">Daha doğru sonuçlar (orta)</div>
+            <p className="text-sm text-gray-600 mt-2">
+              Ses dosyanız çevrimiçi API ile işlenir. Tarayıcı çözümü çalışmadığında kullanın.
+            </p>
           </button>
         </div>
       </div>
+
+      {/* API Key girişi (sadece API modu seçiliyse ve "OpenAI ile kullan" işaretliyse) */}
+      {processingMode === 'api' && showApiKeyInput && (
+        <div className="mb-6 p-4 border border-gray-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <h3 className="font-medium">OpenAI API Anahtarı (İsteğe Bağlı)</h3>
+            <span className="text-xs bg-gray-100 px-2 py-1 rounded-full">Ücretsiz API kullanmak için boş bırakabilirsiniz</span>
+          </div>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="OpenAI API anahtarınızı girin (isteğe bağlı)"
+            className="w-full p-2 border border-gray-300 rounded"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Not: API anahtarı girerseniz, OpenAI'nin Whisper API'si kullanılır. Aksi takdirde ücretsiz alternatif API kullanılır.
+          </p>
+        </div>
+      )}
+
+      {/* Model seçimi - sadece tarayıcı modu için göster */}
+      {processingMode === 'browser' && (
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold mb-3 text-center text-purple-600">Model Seçimi</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button 
+              className={`p-4 rounded-lg border transition-all flex flex-col items-center ${
+                selectedModel === 'whisper-small' 
+                  ? 'bg-gradient-to-r from-purple-100 to-purple-200 border-purple-400 shadow-md' 
+                  : 'bg-white/50 border-gray-200 hover:border-purple-300'
+              }`}
+              onClick={() => setSelectedModel('whisper-small')}
+            >
+              <div className={`font-medium ${selectedModel === 'whisper-small' ? 'text-purple-600' : 'text-gray-700'}`}>
+                Whisper Small
+              </div>
+              <div className="text-xs text-gray-600 mt-1">Hafif model, hızlı sonuç (küçük)</div>
+            </button>
+
+            <button 
+              className={`p-4 rounded-lg border transition-all flex flex-col items-center ${
+                selectedModel === 'whisper-medium' 
+                  ? 'bg-gradient-to-r from-indigo-100 to-indigo-200 border-indigo-400 shadow-md' 
+                  : 'bg-white/50 border-gray-200 hover:border-indigo-300'
+              }`}
+              onClick={() => setSelectedModel('whisper-medium')}
+            >
+              <div className={`font-medium ${selectedModel === 'whisper-medium' ? 'text-indigo-600' : 'text-gray-700'}`}>
+                Whisper Medium
+              </div>
+              <div className="text-xs text-gray-600 mt-1">Daha doğru sonuçlar (orta)</div>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* İyileştirilmiş dosya sürükle bırak alanı */}
       <div className="mt-6">
@@ -270,6 +366,18 @@ const HomePage = () => {
         </div>
       </div>
 
+      {/* API modu için API Key gösterme/gizleme seçeneği */}
+      {processingMode === 'api' && (
+        <div className="mt-2 flex justify-center">
+          <button 
+            onClick={() => setShowApiKeyInput(!showApiKeyInput)}
+            className="text-sm text-indigo-600 hover:text-indigo-800"
+          >
+            {showApiKeyInput ? 'API Anahtar Girişini Gizle' : 'OpenAI API Anahtarı Kullan (İsteğe Bağlı)'}
+          </button>
+        </div>
+      )}
+
       {/* İyileştirilmiş buton */}
       <button 
         disabled={!selectedFile || isLoading || modelLoading} 
@@ -277,7 +385,9 @@ const HomePage = () => {
           w-full py-3 rounded-lg mt-4 font-medium transition-all
           ${!selectedFile || isLoading || modelLoading
             ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-            : 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg hover:shadow-xl hover:translate-y-[-1px]'
+            : processingMode === 'browser' 
+              ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg hover:shadow-xl hover:translate-y-[-1px]'
+              : 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-lg hover:shadow-xl hover:translate-y-[-1px]'
           }
         `}
         onClick={handleUpload}
@@ -290,7 +400,7 @@ const HomePage = () => {
         ) : modelLoading ? (
           <div className="flex items-center justify-center gap-2">
             <Loader className="w-5 h-5 animate-spin" />
-            <span>Model hazırlanıyor...</span>
+            <span>{processingMode === 'browser' ? 'Model hazırlanıyor...' : 'API bağlantısı kuruluyor...'}</span>
           </div>
         ) : (
           'Dosyayı Yükle ve Dönüştür'

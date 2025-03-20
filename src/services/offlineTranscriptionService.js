@@ -39,13 +39,27 @@ class OfflineTranscriptionService {
       const processingTime = Math.min(Math.max(1000, audioFile.size / 10000), 5000);
       await new Promise(resolve => setTimeout(resolve, processingTime));
       
-      // Örnek türkçe transkripsiyon metni
-      const exampleTranscriptions = [
-        "Merhaba, bu bir test kaydıdır. Sistemimiz şu anda offline modda çalışmaktadır. İnternet bağlantınız olmadığı için gerçek transkripsiyon yapılamıyor.",
-        "Sesli kayıttan metne dönüştürme işlemi için internet bağlantısı ve Whisper modeli gereklidir. Şu anda örnek bir çıktı görüyorsunuz.",
-        "Bu bir demo çıktısıdır. Gerçek transkripsiyon için lütfen internet bağlantınızı kontrol edin ve sayfayı yenileyin.",
-        "Offline modda çalışıyorsunuz. Bu mod sadece uygulamanın arayüzünü test etmenizi sağlar. Gerçek ses dosyalarını işlemek için Whisper modelinin yüklenmesi gerekir."
-      ];
+      // Demo amacıyla dil kontrolü yap
+      const language = options.language || 'auto';
+      let exampleTranscriptions;
+      
+      if (language === 'en' || language === 'english') {
+        // İngilizce örnek metinler
+        exampleTranscriptions = [
+          "Hello, this is a test recording. Our system is currently working in offline mode. Real transcription is not possible without an internet connection.",
+          "Converting audio to text requires internet connection and the Whisper model. You are currently seeing an example output.",
+          "This is a demo output. For real transcription, please check your internet connection and refresh the page.",
+          "You are working in offline mode. This mode only allows you to test the application interface. Loading the Whisper model is required to process real audio files."
+        ];
+      } else {
+        // Türkçe örnek metinler (varsayılan)
+        exampleTranscriptions = [
+          "Merhaba, bu bir test kaydıdır. Sistemimiz şu anda offline modda çalışmaktadır. İnternet bağlantınız olmadığı için gerçek transkripsiyon yapılamıyor.",
+          "Sesli kayıttan metne dönüştürme işlemi için internet bağlantısı ve Whisper modeli gereklidir. Şu anda örnek bir çıktı görüyorsunuz.",
+          "Bu bir demo çıktısıdır. Gerçek transkripsiyon için lütfen internet bağlantınızı kontrol edin ve sayfayı yenileyin.",
+          "Offline modda çalışıyorsunuz. Bu mod sadece uygulamanın arayüzünü test etmenizi sağlar. Gerçek ses dosyalarını işlemek için Whisper modelinin yüklenmesi gerekir."
+        ];
+      }
       
       // Rastgele bir transkripsiyon seçelim
       const transcriptionText = exampleTranscriptions[Math.floor(Math.random() * exampleTranscriptions.length)];
@@ -54,7 +68,7 @@ class OfflineTranscriptionService {
       
       return {
         text: transcriptionText,
-        language: 'tr',
+        language: language === 'auto' ? 'tr' : language,
         chunks: [{text: transcriptionText, timestamp: [0, 10]}],
         isOfflineResult: true
       };

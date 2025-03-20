@@ -2,52 +2,40 @@
 import { pipeline, env } from '@xenova/transformers';
 
 // Transformers.js kütüphanesine global ayarlar
-// 1. Cache yolunu değiştiriyoruz - modeller application cache'te saklanacak
+// Tarayıcı cache'i ve modelleri aktif et
 env.allowLocalModels = true;
 env.useBrowserCache = true;
 
-// 2. CORS ve ağ sorunlarını çözmek için çeşitli ayarlar
-// Varsayılan CDN'leri deneyelim (sırayla)
-const CDN_HOSTS = [
-  'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2',
-  'https://unpkg.com/@xenova/transformers@2.17.2',
-  'https://cdnjs.cloudflare.com/ajax/libs/transformers.js/2.17.2'
-];
+// Mirror CDN seçeneği ekle - doğrudan jsdelivr kullan
+env.remoteHost = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.5.0/dist';
+env.allowRemoteModels = true;
 
-// CDN'leri rastgele seçelim - CORS sorunu olursa farklı bir CDN denenir
-env.remoteHost = CDN_HOSTS[Math.floor(Math.random() * CDN_HOSTS.length)];
-env.allowRemoteModels = true; // Uzaktan modellere izin ver
+// En küçük ve en basit model - tiny
+const DEFAULT_MODEL = 'Xenova/whisper-tiny.en';
 
-// Mevcut en küçük modeli kullan - daha stabil
-const WHISPER_MODELS = {
-  small: 'Xenova/whisper-tiny.en', // tiny.en daha küçük, daha stabil (İngilizce)
-  medium: 'Xenova/whisper-tiny'    // tiny modeli orta olarak kullan
+// Transformers.js API'sini kullanmadan doğrudan model dosyalarına erişim için URL'ler
+const MODEL_URLS = {
+  tokenizer: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/tokenizer.json',
+  model: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/model.onnx',
+  processor: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/preprocessor_config.json',
+  config: 'https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/config.json'
 };
+
+// CORS proxy URL
+const CORS_PROXY = 'https://corsproxy.io/?';
 
 // Özel hata yakalama fonksiyonu
 function handleModelError(error) {
   console.error('Model işleme hatası:', error);
   
   if (error.toString().includes('<!doctype') || error.toString().includes('JSON')) {
-    console.warn('HTML/JSON hatası tespit edildi, CDN değiştiriliyor');
-    // Farklı bir CDN dene
-    const currentIndex = CDN_HOSTS.indexOf(env.remoteHost);
-    const nextIndex = (currentIndex + 1) % CDN_HOSTS.length;
-    env.remoteHost = CDN_HOSTS[nextIndex];
-    console.log(`CDN değiştirildi: ${env.remoteHost}`);
-    
-    return new Error('Ağ hatası: Model dosyaları indirilemedi. Alternatif CDN deneniyor...');
+    console.warn('HTML/JSON hatası tespit edildi, doğrudan offline moda geçiliyor');
+    return new Error('Model yüklenemedi: Ağ hatası. Offline moda geçiliyor...');
   }
   
   if (error.toString().includes('CORS')) {
-    console.warn('CORS hatası tespit edildi, CDN değiştiriliyor');
-    // Farklı bir CDN dene
-    const currentIndex = CDN_HOSTS.indexOf(env.remoteHost);
-    const nextIndex = (currentIndex + 1) % CDN_HOSTS.length;
-    env.remoteHost = CDN_HOSTS[nextIndex];
-    console.log(`CDN değiştirildi: ${env.remoteHost}`);
-    
-    return new Error('CORS hatası: Model dosyalarına erişim engellendi. Alternatif CDN deneniyor...');
+    console.warn('CORS hatası tespit edildi, doğrudan offline moda geçiliyor');
+    return new Error('CORS hatası: Model dosyalarına erişim engellendi. Offline moda geçiliyor...');
   }
   
   return error;
@@ -57,111 +45,84 @@ class WhisperService {
   constructor() {
     this.transcriber = null;
     this.isLoading = false;
-    this.modelName = WHISPER_MODELS.small;
-    this.retryCount = 0;
-    this.maxRetries = 3;
-    this.cdnTriesCount = 0;
-    this.maxCdnTries = CDN_HOSTS.length;
+    this.modelName = DEFAULT_MODEL;
   }
 
-  async initialize(modelName = 'small') {
-    if (this.transcriber) return;
-    
+  // Doğrudan model URL'sini fetch ile çekmeyi dene
+  async fetchWithProxy(url) {
+    try {
+      // Doğrudan dene
+      const response = await fetch(url);
+      if (response.ok) return response;
+      
+      // Doğrudan erişim başarısız olursa CORS proxy ile dene
+      const proxyResponse = await fetch(CORS_PROXY + url);
+      if (proxyResponse.ok) return proxyResponse;
+      
+      throw new Error(`Model dosyası indirilemedi: ${url}`);
+    } catch (error) {
+      console.error('Model indirme hatası:', error);
+      throw error;
+    }
+  }
+
+  async initialize() {
     try {
       this.isLoading = true;
+      console.log('Transformers.js ile model yükleniyor...');
       
-      // Model adını belirle - daha güvenilir ve küçük modeller kullan
-      this.modelName = modelName === 'medium' ? WHISPER_MODELS.medium : WHISPER_MODELS.small;
-      
-      // Progress callback fonksiyonu
-      const progressCallback = (progress) => {
-        console.log(`Model yükleme ilerlemesi: ${Math.round((progress?.progress || 0) * 100)}%`);
-      };
-      
-      // Modeli yüklemeyi dene
       try {
-        console.log(`Model yükleniyor: ${this.modelName} (CDN: ${env.remoteHost})...`);
-        // Önce model bilgilerini çek - genellikle daha küçük bir json dosyası
+        // Basitleştirilmiş yapılandırma ile Transformers.js pipeline kullan
         this.transcriber = await pipeline(
-          'automatic-speech-recognition', 
-          this.modelName, 
-          { progress_callback: progressCallback }
+          'automatic-speech-recognition',
+          DEFAULT_MODEL,
+          { 
+            quantized: true,
+            revision: 'main',
+            config: {
+              chunk_length_s: 30,
+              stride_length_s: 5
+            }
+          }
         );
-      } catch (initialError) {
-        // Model yüklenemezse farklı CDN veya model deneyelim
-        console.warn('Model yüklenemedi, alternatif deneniyor:', initialError.message);
         
-        if (this.cdnTriesCount < this.maxCdnTries) {
-          this.cdnTriesCount++;
-          // CDN değiştir
-          const currentIndex = CDN_HOSTS.indexOf(env.remoteHost);
-          const nextIndex = (currentIndex + 1) % CDN_HOSTS.length;
-          env.remoteHost = CDN_HOSTS[nextIndex];
-          console.log(`CDN değiştirildi: ${env.remoteHost} (${this.cdnTriesCount}/${this.maxCdnTries})`);
-          
-          // Aynı modeli tekrar dene
-          this.transcriber = await pipeline(
-            'automatic-speech-recognition', 
-            this.modelName, 
-            { progress_callback: progressCallback }
-          );
-        } else {
-          // CDN'ler denendi, daha basit modeli dene
-          console.warn("Tüm CDN'ler başarısız, en basit modele geçiliyor");
-          this.modelName = 'Xenova/whisper-tiny.en';  // En küçük İngilizce model
-          this.transcriber = await pipeline(
-            'automatic-speech-recognition', 
-            this.modelName, 
-            { progress_callback: progressCallback }
-          );
-        }
+        console.log('Model başarıyla yüklendi!');
+        return this.transcriber;
+      } catch (error) {
+        console.warn('Model yüklenemedi, alternatif yöntem deneniyor...', error);
+        throw error;
       }
-      
-      this.isLoading = false;
-      console.log(`${this.modelName} başarıyla yüklendi`);
     } catch (error) {
       this.isLoading = false;
       const handledError = handleModelError(error);
-      console.error('Whisper model yüklenirken hata:', handledError);
+      console.error('Model yüklenirken hata:', handledError);
       throw handledError;
+    } finally {
+      this.isLoading = false;
     }
   }
 
   async transcribe(audioFile, options = {}) {
     try {
       if (!this.transcriber && !this.isLoading) {
-        await this.initialize(options.model);
+        await this.initialize();
       }
 
       if (this.isLoading) {
         throw new Error('Model yükleniyor, lütfen bekleyin...');
       }
 
-      // Eğer model hala yüklenemezse tekrar deneyelim (maksimum 3 kez)
-      if (!this.transcriber && this.retryCount < this.maxRetries) {
-        this.retryCount++;
-        console.log(`Model yüklenemedi, yeniden deneniyor (${this.retryCount}/${this.maxRetries})...`);
-        
-        // Her deneme için farklı CDN ve model deneyelim
-        const currentIndex = CDN_HOSTS.indexOf(env.remoteHost);
-        const nextIndex = (currentIndex + 1) % CDN_HOSTS.length;
-        env.remoteHost = CDN_HOSTS[nextIndex];
-        console.log(`CDN değiştirildi: ${env.remoteHost}`);
-        
-        await this.initialize('small'); // En küçük modeli dene
-      }
-      
       if (!this.transcriber) {
-        throw new Error('Model yüklenemedi. Lütfen bağlantınızı kontrol edip sayfayı yenileyiniz.');
+        throw new Error('Model yüklenemedi. Offline modda işlem yapılacak.');
       }
       
       // Transcribe parametreleri
       const transcribeParams = {
-        language: options.language || 'turkish',
+        language: options.language || 'auto',  // Auto-detect language
         task: 'transcribe',
-        chunk_length_s: 30, // Her 30 saniyelik parça için
-        stride_length_s: 5, // 5 saniye örtüşme
-        return_timestamps: true, // Zaman damgalarını göster (isteğe bağlı)
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: true
       };
       
       console.log('Ses dosyası işleniyor...');
@@ -169,14 +130,13 @@ class WhisperService {
       console.log('İşlem tamamlandı!');
 
       return {
-        text: result.text,
+        text: result.text || '',
         language: result.language || 'tr',
         chunks: result.chunks || []
       };
     } catch (error) {
-      const handledError = handleModelError(error);
-      console.error('Transkripsiyon hatası:', handledError);
-      throw handledError;
+      console.error('Transkripsiyon hatası:', error);
+      throw error;
     }
   }
 }
