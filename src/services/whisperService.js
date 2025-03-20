@@ -1,4 +1,7 @@
 // Whisper.js kullanarak tarayıcı tarafında ses-metin dönüşümü yapan servis
+// NOT: Bu dosya artık yalnızca Transformers.js modeli kullanan versiyondur
+// Web Speech API tabanlı alternatif hızlı çözüm için webSpeechService.js kullanılır
+
 import { pipeline, env } from '@xenova/transformers';
 
 // Transformers.js kütüphanesine global ayarlar
@@ -38,6 +41,11 @@ function handleModelError(error) {
     return new Error('CORS hatası: Model dosyalarına erişim engellendi. Offline moda geçiliyor...');
   }
   
+  if (error.toString().includes('Extractor')) {
+    console.warn('Feature Extractor hatası tespit edildi, doğrudan offline moda geçiliyor');
+    return new Error('Feature Extractor hatası: Model işlenemiyor. Offline moda geçiliyor...');
+  }
+  
   return error;
 }
 
@@ -46,6 +54,7 @@ class WhisperService {
     this.transcriber = null;
     this.isLoading = false;
     this.modelName = DEFAULT_MODEL;
+    this.loadAttempted = false;
   }
 
   // Doğrudan model URL'sini fetch ile çekmeyi dene
@@ -67,31 +76,32 @@ class WhisperService {
   }
 
   async initialize() {
+    // Eğer daha önce yükleme denemesi yapıldıysa ve başarısız olduysa, doğrudan hata döndür
+    if (this.loadAttempted && !this.transcriber) {
+      throw new Error('Model daha önce yüklenemedi. Offline modda çalışılacak.');
+    }
+    
     try {
       this.isLoading = true;
+      this.loadAttempted = true;
       console.log('Transformers.js ile model yükleniyor...');
       
-      try {
-        // Basitleştirilmiş yapılandırma ile Transformers.js pipeline kullan
-        this.transcriber = await pipeline(
-          'automatic-speech-recognition',
-          DEFAULT_MODEL,
-          { 
-            quantized: true,
-            revision: 'main',
-            config: {
-              chunk_length_s: 30,
-              stride_length_s: 5
-            }
+      // Basitleştirilmiş yapılandırma ile Transformers.js pipeline kullan
+      this.transcriber = await pipeline(
+        'automatic-speech-recognition',
+        DEFAULT_MODEL,
+        { 
+          quantized: true,
+          revision: 'main',
+          config: {
+            chunk_length_s: 30,
+            stride_length_s: 5
           }
-        );
-        
-        console.log('Model başarıyla yüklendi!');
-        return this.transcriber;
-      } catch (error) {
-        console.warn('Model yüklenemedi, alternatif yöntem deneniyor...', error);
-        throw error;
-      }
+        }
+      );
+      
+      console.log('Model başarıyla yüklendi!');
+      return this.transcriber;
     } catch (error) {
       this.isLoading = false;
       const handledError = handleModelError(error);

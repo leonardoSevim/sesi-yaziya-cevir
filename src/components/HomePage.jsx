@@ -10,11 +10,13 @@ import {
   Wifi,
   WifiOff,
   Globe,
-  Server
+  Server,
+  Mic
 } from 'lucide-react';
 import WhisperService from '../services/whisperService';
 import OfflineTranscriptionService from '../services/offlineTranscriptionService';
 import ApiWhisperService from '../services/apiWhisperService';
+import WebSpeechService from '../services/webSpeechService';
 
 const HomePage = () => {
   const [transcription, setTranscription] = useState('');
@@ -26,9 +28,27 @@ const HomePage = () => {
   const [modelLoading, setModelLoading] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
   const [modelLoadAttempted, setModelLoadAttempted] = useState(false);
-  const [processingMode, setProcessingMode] = useState('browser'); // 'browser' veya 'api'
+  const [processingMode, setProcessingMode] = useState('browser'); // 'browser', 'api' veya 'webspeech'
   const [apiKey, setApiKey] = useState('');
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [webSpeechAvailable, setWebSpeechAvailable] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+
+  // Web Speech API'nin kullanılabilir olup olmadığını kontrol et
+  useEffect(() => {
+    const checkWebSpeechAvailability = async () => {
+      try {
+        const isAvailable = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+        setWebSpeechAvailable(isAvailable);
+        console.log(`Web Speech API ${isAvailable ? 'kullanılabilir' : 'kullanılamaz'}`);
+      } catch (error) {
+        console.error('Web Speech API kontrol hatası:', error);
+        setWebSpeechAvailable(false);
+      }
+    };
+    
+    checkWebSpeechAvailability();
+  }, []);
 
   // Whisper modelini yükleyen fonksiyon
   const initializeWhisperModel = async () => {
@@ -41,14 +61,25 @@ const HomePage = () => {
         await WhisperService.initialize();
         setOfflineMode(false);
         console.log('Online model başarıyla yüklendi');
-      } else {
+      } else if (processingMode === 'api') {
         // API modu
         await ApiWhisperService.initialize();
         setOfflineMode(false);
         console.log('API servisi başarıyla yüklendi');
+      } else if (processingMode === 'webspeech') {
+        // Web Speech API modu
+        await WebSpeechService.initialize();
+        setOfflineMode(false);
+        console.log('Web Speech API başarıyla yüklendi');
       }
     } catch (err) {
       console.error('Model başlatma hatası:', err);
+      
+      if (processingMode === 'webspeech') {
+        setError('Web Speech API başlatılamadı. Tarayıcınız desteklemiyor olabilir.');
+        return;
+      }
+      
       // Eğer model yüklenemezse, offline moda geç
       setOfflineMode(true);
       // Offline modeli hazırla
@@ -71,8 +102,41 @@ const HomePage = () => {
     // Sayfa kapatılırken temizlik yap
     return () => {
       // Temizlik işlemleri gerekirse buraya eklenebilir
+      if (isRecording) {
+        WebSpeechService.recognition?.stop();
+      }
     };
   }, [processingMode]); // İşleme modu değiştiğinde yeniden yükle
+
+  // Mikrofon kaydını başlat
+  const startRecording = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      setProgress(10);
+      setTranscription('');
+      setIsRecording(true);
+      
+      setProgress(30);
+      
+      const result = await WebSpeechService.transcribeFromMicrophone({
+        language: 'tr-TR'
+      });
+      
+      if (result && result.text) {
+        setTranscription(result.text);
+        setProgress(100);
+      } else {
+        throw new Error('Konuşma tanınamadı.');
+      }
+    } catch (err) {
+      console.error('Mikrofon kaydı hatası:', err);
+      setError('Mikrofon kaydı sırasında bir hata oluştu: ' + err.message);
+    } finally {
+      setIsLoading(false);
+      setIsRecording(false);
+    }
+  };
 
   const processAudio = async (file) => {
     if (!file) return;
@@ -122,12 +186,18 @@ const HomePage = () => {
               model: modelParam
             });
           }
-        } else {
+        } else if (processingMode === 'api') {
           // API modunda işlem yap
           setProgress(50);
           result = await ApiWhisperService.transcribe(file, {
             language: 'auto',
             apiKey: apiKey // OpenAI API anahtarı varsa ekle
+          });
+        } else if (processingMode === 'webspeech') {
+          // Web Speech API modunda işlem yap
+          setProgress(50);
+          result = await WebSpeechService.transcribe(file, {
+            language: 'auto'
           });
         }
       }
@@ -149,7 +219,7 @@ const HomePage = () => {
       console.error('İşleme hatası:', err);
       
       // Eğer online modda hata alındıysa offline moda geç
-      if (!offlineMode) {
+      if (!offlineMode && processingMode !== 'webspeech') {
         setOfflineMode(true);
         await OfflineTranscriptionService.initialize();
         setError('Online işleme sırasında hata oluştu. Offline demo moduna geçildi. Bu modda gerçek transkripsiyon yapılamaz.');
@@ -214,7 +284,7 @@ const HomePage = () => {
       {/* İşleme Modu Seçimi */}
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-3 text-center text-purple-600">İşleme Modu</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <button 
             className={`p-4 rounded-lg border transition-all flex flex-col items-center ${
               processingMode === 'browser' 
@@ -275,6 +345,36 @@ const HomePage = () => {
               Ses dosyanız çevrimiçi API ile işlenir. Tarayıcı çözümü çalışmadığında kullanın.
             </p>
           </button>
+          
+          <button 
+            className={`p-4 rounded-lg border transition-all flex flex-col items-center ${
+              !webSpeechAvailable ? 'opacity-50 cursor-not-allowed' : 
+              processingMode === 'webspeech' 
+                ? 'bg-gradient-to-r from-green-100 to-green-200 border-green-400 shadow-md' 
+                : 'bg-white/50 border-gray-200 hover:border-green-300'
+            }`}
+            onClick={() => webSpeechAvailable && toggleProcessingMode('webspeech')}
+            disabled={!webSpeechAvailable}
+          >
+            <div className="flex items-center gap-2">
+              <Mic className="w-6 h-6 text-green-500" />
+              <div className={`font-medium ${processingMode === 'webspeech' ? 'text-green-600' : 'text-gray-700'}`}>
+                Tarayıcı Konuşma API
+              </div>
+              
+              {processingMode === 'webspeech' && modelLoadAttempted && (
+                <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full flex items-center ml-2">
+                  <Check className="w-3 h-3 mr-1" />
+                  Hazır
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-gray-600 mt-2">
+              {webSpeechAvailable 
+                ? 'Tarayıcınızın dahili konuşma tanıma özelliğini kullanır. Çevrimdışı da çalışabilir.' 
+                : 'Bu özellik tarayıcınızda kullanılamıyor.'}
+            </p>
+          </button>
         </div>
       </div>
 
@@ -294,6 +394,31 @@ const HomePage = () => {
           />
           <p className="text-xs text-gray-500 mt-1">
             Not: API anahtarı girerseniz, OpenAI'nin Whisper API'si kullanılır. Aksi takdirde ücretsiz alternatif API kullanılır.
+          </p>
+        </div>
+      )}
+
+      {/* Web Speech API - Mikrofon butonu */}
+      {processingMode === 'webspeech' && webSpeechAvailable && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={startRecording}
+            disabled={isLoading || isRecording}
+            className={`
+              p-6 rounded-full 
+              ${isRecording 
+                ? 'bg-red-500 animate-pulse'
+                : 'bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'}
+              shadow-xl transition-all
+              ${isLoading || isRecording ? 'opacity-70' : 'hover:shadow-2xl hover:scale-105'}
+            `}
+          >
+            <Mic className={`w-12 h-12 text-white ${isRecording ? 'animate-bounce' : ''}`} />
+          </button>
+          <p className="mt-3 text-center text-green-700 font-medium">
+            {isRecording 
+              ? 'Dinleniyor... Konuşmanız tamamlandığında otomatik olarak sonlanacak.'
+              : 'Mikrofon ile kayıt başlatmak için tıklayın'}
           </p>
         </div>
       )}
@@ -334,37 +459,39 @@ const HomePage = () => {
         </div>
       )}
 
-      {/* İyileştirilmiş dosya sürükle bırak alanı */}
-      <div className="mt-6">
-        <div 
-          {...getRootProps()} 
-          className={`
-            border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all 
-            bg-white/30 backdrop-blur-sm
-            ${isDragActive ? 'border-purple-500 bg-purple-50/50' : 'border-gray-300 hover:border-purple-400'}
-          `}
-        >
-          <input {...getInputProps()} />
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-20 h-20 rounded-full bg-purple-100 flex items-center justify-center">
-              <Upload className="w-10 h-10 text-purple-500" />
-            </div>
-            <p className="text-purple-800 font-medium">
-              {isDragActive
-                ? 'Dosyayı buraya bırakın'
-                : 'Ses dosyasını seçin veya buraya sürükleyin'}
-            </p>
-            <p className="text-sm text-gray-600">
-              Desteklenen formatlar: MP3, M4A, WAV, OGG (maks. 50MB)
-            </p>
-            {selectedFile && (
-              <div className="mt-2 bg-green-50 text-green-700 px-3 py-1 rounded-full text-sm">
-                {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
+      {/* İyileştirilmiş dosya sürükle bırak alanı - Web Speech API modunda gösterme */}
+      {processingMode !== 'webspeech' && (
+        <div className="mt-6">
+          <div 
+            {...getRootProps()} 
+            className={`
+              border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all 
+              bg-white/30 backdrop-blur-sm
+              ${isDragActive ? 'border-purple-500 bg-purple-50/50' : 'border-gray-300 hover:border-purple-400'}
+            `}
+          >
+            <input {...getInputProps()} />
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-20 h-20 rounded-full bg-purple-100 flex items-center justify-center">
+                <Upload className="w-10 h-10 text-purple-500" />
               </div>
-            )}
+              <p className="text-purple-800 font-medium">
+                {isDragActive
+                  ? 'Dosyayı buraya bırakın'
+                  : 'Ses dosyasını seçin veya buraya sürükleyin'}
+              </p>
+              <p className="text-sm text-gray-600">
+                Desteklenen formatlar: MP3, M4A, WAV, OGG (maks. 50MB)
+              </p>
+              {selectedFile && (
+                <div className="mt-2 bg-green-50 text-green-700 px-3 py-1 rounded-full text-sm">
+                  {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* API modu için API Key gösterme/gizleme seçeneği */}
       {processingMode === 'api' && (
@@ -378,34 +505,36 @@ const HomePage = () => {
         </div>
       )}
 
-      {/* İyileştirilmiş buton */}
-      <button 
-        disabled={!selectedFile || isLoading || modelLoading} 
-        className={`
-          w-full py-3 rounded-lg mt-4 font-medium transition-all
-          ${!selectedFile || isLoading || modelLoading
-            ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-            : processingMode === 'browser' 
-              ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg hover:shadow-xl hover:translate-y-[-1px]'
-              : 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-lg hover:shadow-xl hover:translate-y-[-1px]'
-          }
-        `}
-        onClick={handleUpload}
-      >
-        {isLoading ? (
-          <div className="flex items-center justify-center gap-2">
-            <Loader className="w-5 h-5 animate-spin" />
-            <span>İşleniyor... {progress}%</span>
-          </div>
-        ) : modelLoading ? (
-          <div className="flex items-center justify-center gap-2">
-            <Loader className="w-5 h-5 animate-spin" />
-            <span>{processingMode === 'browser' ? 'Model hazırlanıyor...' : 'API bağlantısı kuruluyor...'}</span>
-          </div>
-        ) : (
-          'Dosyayı Yükle ve Dönüştür'
-        )}
-      </button>
+      {/* İyileştirilmiş buton - Web Speech API modunda gösterme */}
+      {processingMode !== 'webspeech' && (
+        <button 
+          disabled={!selectedFile || isLoading || modelLoading} 
+          className={`
+            w-full py-3 rounded-lg mt-4 font-medium transition-all
+            ${!selectedFile || isLoading || modelLoading
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+              : processingMode === 'browser' 
+                ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white shadow-lg hover:shadow-xl hover:translate-y-[-1px]'
+                : 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-lg hover:shadow-xl hover:translate-y-[-1px]'
+            }
+          `}
+          onClick={handleUpload}
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2">
+              <Loader className="w-5 h-5 animate-spin" />
+              <span>İşleniyor... {progress}%</span>
+            </div>
+          ) : modelLoading ? (
+            <div className="flex items-center justify-center gap-2">
+              <Loader className="w-5 h-5 animate-spin" />
+              <span>{processingMode === 'browser' ? 'Model hazırlanıyor...' : 'API bağlantısı kuruluyor...'}</span>
+            </div>
+          ) : (
+            'Dosyayı Yükle ve Dönüştür'
+          )}
+        </button>
+      )}
 
       {/* Hata mesajı */}
       {error && (
