@@ -1,30 +1,7 @@
 /**
- * Audio transcription service using Whisper model
- * Performs offline transcription of audio files using Whisper model via transformers.js
- * Includes ONNX runtime configuration for web environment
+ * Audio transcription service using Web Speech API and audio processing
+ * 2025 technology stack with browser-based speech recognition
  */
-
-import { pipeline, env } from '@xenova/transformers';
-import * as ort from 'onnxruntime-web';
-
-// CORS ayarları
-env.allowCrossOriginRequests = true;
-env.allowLocalModels = false;
-env.useCDN = true;
-
-// Configure ONNX runtime
-env.backends.onnx.wasm.wasmPaths = {
-  'ort-wasm.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm.wasm',
-  'ort-wasm-simd.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd.wasm',
-  'ort-wasm-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-threaded.wasm'
-};
-
-// Register ONNX backend
-if (ort.env) {
-  ort.env.wasm.wasmPaths = env.backends.onnx.wasm.wasmPaths;
-}
-
-let transcriptionPipeline: any = null;
 
 export interface TranscriptionResult {
   id: string;
@@ -34,36 +11,119 @@ export interface TranscriptionResult {
   error?: string;
 }
 
-async function initializePipeline() {
-  if (!transcriptionPipeline) {
-    try {
-      console.log("Pipeline başlatılıyor...");
-      // Daha küçük ve daha hızlı model kullanılıyor
-      transcriptionPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
-        quantized: true,
-        progress_callback: (progress) => {
-          if (progress && typeof progress.progress === 'number') {
-            const percentage = Math.round(progress.progress * 100);
-            console.log(`Model yükleniyor: ${percentage}%`);
-          }
-        }
-      });
-      console.log("Pipeline başarıyla başlatıldı!");
-      return transcriptionPipeline;
-    } catch (error) {
-      console.error("Pipeline başlatılamadı:", error);
-      throw error;
+// Ses dosyasını küçük parçalara bölen yardımcı fonksiyon
+async function splitAudioIntoChunks(audioBuffer: AudioBuffer, chunkDuration: number = 15) {
+  const sampleRate = audioBuffer.sampleRate;
+  const chunkSize = chunkDuration * sampleRate;
+  const chunks = [];
+  
+  for (let i = 0; i < audioBuffer.length; i += chunkSize) {
+    const chunkLength = Math.min(chunkSize, audioBuffer.length - i);
+    const chunk = new AudioBuffer({
+      numberOfChannels: audioBuffer.numberOfChannels,
+      length: chunkLength,
+      sampleRate: sampleRate
+    });
+    
+    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+      const sourceData = audioBuffer.getChannelData(channel);
+      const chunkData = chunk.getChannelData(channel);
+      for (let j = 0; j < chunkLength; j++) {
+        chunkData[j] = sourceData[i + j];
+      }
     }
+    
+    chunks.push(chunk);
   }
-  return transcriptionPipeline;
+  
+  return chunks;
 }
 
+// AudioBuffer'ı Blob'a dönüştüren yardımcı fonksiyon
+async function audioBufferToWav(audioBuffer: AudioBuffer): Promise<Blob> {
+  const numOfChannels = audioBuffer.numberOfChannels;
+  const length = audioBuffer.length * numOfChannels * 2;
+  const buffer = new ArrayBuffer(44 + length);
+  const view = new DataView(buffer);
+  
+  // WAV formatı için header
+  // "RIFF" id
+  view.setUint8(0, 82);  // R
+  view.setUint8(1, 73);  // I
+  view.setUint8(2, 70);  // F
+  view.setUint8(3, 70);  // F
+  
+  // file size
+  view.setUint32(4, 36 + length, true);
+  
+  // RIFF type & "WAVE" id
+  view.setUint8(8, 87);   // W
+  view.setUint8(9, 65);   // A
+  view.setUint8(10, 86);  // V
+  view.setUint8(11, 69);  // E
+  
+  // format chunk id "fmt "
+  view.setUint8(12, 102); // f
+  view.setUint8(13, 109); // m
+  view.setUint8(14, 116); // t
+  view.setUint8(15, 32);  // ' '
+  
+  // format chunk size
+  view.setUint32(16, 16, true);
+  // formatType (PCM)
+  view.setUint16(20, 1, true);
+  // channels
+  view.setUint16(22, numOfChannels, true);
+  // sampleRate
+  view.setUint32(24, audioBuffer.sampleRate, true);
+  // byteRate (sampleRate * channels * bytesPerSample)
+  view.setUint32(28, audioBuffer.sampleRate * numOfChannels * 2, true);
+  // blockAlign (channels * bytesPerSample)
+  view.setUint16(32, numOfChannels * 2, true);
+  // bitsPerSample
+  view.setUint16(34, 16, true);
+  
+  // data chunk id "data"
+  view.setUint8(36, 100); // d
+  view.setUint8(37, 97);  // a
+  view.setUint8(38, 116); // t
+  view.setUint8(39, 97);  // a
+  
+  // data chunk length
+  view.setUint32(40, length, true);
+  
+  // Write the PCM audio data
+  const offset = 44;
+  const channelData = [];
+  for (let i = 0; i < numOfChannels; i++) {
+    channelData.push(audioBuffer.getChannelData(i));
+  }
+  
+  for (let i = 0; i < audioBuffer.length; i++) {
+    for (let channel = 0; channel < numOfChannels; channel++) {
+      const sample = Math.max(-1, Math.min(1, channelData[channel][i]));
+      const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      view.setInt16(offset + (i * numOfChannels + channel) * 2, int16, true);
+    }
+  }
+  
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+// Ses dosyasını AudioContext kullanarak buffer'a yükler
+async function loadAudioFile(file: File): Promise<AudioBuffer> {
+  const audioContext = new AudioContext();
+  const arrayBuffer = await file.arrayBuffer();
+  return await audioContext.decodeAudioData(arrayBuffer);
+}
+
+// Ses dosyalarını transkript etme fonksiyonu - 2025 modeli
 export async function transcribeAudio(
   file: File,
   onProgress?: (interim: string) => void
 ): Promise<string> {
   try {
-    // Validate file size
+    // Dosya boyutunu kontrol et
     if (file.size > 50 * 1024 * 1024) {
       throw new Error('Dosya boyutu çok büyük. Maksimum 50MB desteklenmektedir.');
     }
@@ -71,48 +131,120 @@ export async function transcribeAudio(
     console.log("Transcription başlatılıyor...");
     onProgress?.("Ses dosyası işleniyor. Lütfen bekleyin...");
     
-    // Initialize pipeline
     try {
-      const pipe = await initializePipeline();
+      // Ses dosyasını AudioBuffer'a yükle
+      const audioBuffer = await loadAudioFile(file);
       
-      // Convert file to blob for processing
-      const audioBlob = new Blob([await file.arrayBuffer()]);
+      // Ses dosyasını küçük parçalara böl
+      console.log("Ses dosyası parçalara bölünüyor...");
+      onProgress?.("Ses dosyası parçalara bölünüyor...");
+      const chunks = await splitAudioIntoChunks(audioBuffer);
       
-      console.log("Model hazır, ses dosyası dönüştürülüyor...");
-      onProgress?.("Model yüklendi. Dönüşüm işlemi devam ediyor...");
+      console.log(`${chunks.length} parça oluşturuldu.`);
       
-      // Transcribe audio
-      const result = await pipe(audioBlob, {
-        language: 'tr',
-        task: 'transcribe',
-        chunk_length_s: 30,
-        stride_length_s: 5
-      });
-
-      if (!result?.text) {
-        throw new Error('Dönüştürme başarısız: Sonuç alınamadı');
+      // Her bir parçayı işle ve transkript et
+      let fullTranscription = '';
+      
+      for (let i = 0; i < chunks.length; i++) {
+        console.log(`Parça ${i+1}/${chunks.length} işleniyor...`);
+        onProgress?.(`Parça ${i+1}/${chunks.length} işleniyor... (${Math.round((i / chunks.length) * 100)}%)`);
+        
+        // Chunk'ı WAV formatına dönüştür
+        const wavBlob = await audioBufferToWav(chunks[i]);
+        
+        // Web Speech API kullanarak transkript et
+        const chunkText = await recognizeSpeech(wavBlob);
+        fullTranscription += ' ' + chunkText;
+        
+        // Ara sonucu göster
+        if (onProgress) {
+          onProgress(fullTranscription.trim());
+        }
       }
-
-      const transcribedText = result.text.trim();
-      onProgress?.(transcribedText);
-      return transcribedText;
-    } catch (modelError) {
-      console.error('Model hatası:', modelError);
-      if (modelError instanceof Error) {
-        throw new Error(`Model hatası: ${modelError.message}`);
-      }
-      throw new Error('Model yüklenirken beklenmeyen bir hata oluştu.');
+      
+      console.log("Transkripsiyon tamamlandı!");
+      return fullTranscription.trim();
+      
+    } catch (error) {
+      console.error('İşleme hatası:', error);
+      throw new Error(`Ses dosyası işlenirken bir hata oluştu: ${error.message}`);
     }
   } catch (error) {
     console.error('Transcription error:', error);
     
     if (error instanceof Error) {
-      if (error.message.includes('Failed to fetch')) {
-        throw new Error('Model yüklenemedi. İnternet bağlantınızı kontrol edin.');
-      }
       throw error;
     }
     
     throw new Error('Ses dosyası işlenirken bir hata oluştu. Lütfen tekrar deneyin.');
+  }
+}
+
+// Web Speech API'yi kullanarak konuşma tanıma
+async function recognizeSpeech(audioBlob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // 2025'te web tarayıcılarında konuşma tanıma daha gelişmiş olacak
+    // Şu an için tarayıcının mevcut API'larını kullanacağız
+    
+    // AudioContext ile ses dosyasını işle
+    const audioURL = URL.createObjectURL(audioBlob);
+    const audio = new Audio();
+    audio.src = audioURL;
+    
+    // SpeechRecognition API kurulumu
+    // TypeScript için arayüz tanımlama
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      reject(new Error('Tarayıcınız konuşma tanımayı desteklemiyor.'));
+      return;
+    }
+    
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'tr-TR';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    
+    let transcription = '';
+    
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          transcription += event.results[i][0].transcript + ' ';
+        }
+      }
+    };
+    
+    recognition.onerror = (event) => {
+      console.error('Konuşma tanıma hatası:', event.error);
+      reject(new Error(`Konuşma tanıma hatası: ${event.error}`));
+    };
+    
+    recognition.onend = () => {
+      console.log('Konuşma tanıma tamamlandı');
+      resolve(transcription.trim());
+    };
+    
+    // Ses dosyasını çalarak tanıma işlemini başlat
+    audio.oncanplaythrough = () => {
+      recognition.start();
+      audio.play();
+    };
+    
+    audio.onended = () => {
+      recognition.stop();
+    };
+    
+    audio.onerror = (error) => {
+      reject(new Error(`Ses dosyası oynatılamadı: ${error}`));
+    };
+  });
+}
+
+// TypeScript için global SpeechRecognition arayüzü tanımlaması
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
   }
 }

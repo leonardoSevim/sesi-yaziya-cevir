@@ -23,7 +23,17 @@ const TranscriptionStatus: React.FC = () => {
       
       const finalText = await transcribeAudio(file, (interim) => {
         setInterimResult(interim);
-        setProgress(90);
+        
+        // İlerleme durumunu güncelle - içerik progress bilgisi içeriyorsa
+        if (interim.includes('%')) {
+          const percentMatch = interim.match(/\((\d+)%\)/);
+          if (percentMatch && percentMatch[1]) {
+            const percent = parseInt(percentMatch[1]);
+            setProgress(10 + (percent * 0.8)); // 10% başlangıç, 90% tamamlanma
+          }
+        } else {
+          setProgress(90); // Tam sonuçlar geliyorsa
+        }
       });
       
       setResult(finalText);
@@ -34,10 +44,16 @@ const TranscriptionStatus: React.FC = () => {
       let errorMessage = err.message || 'Bilinmeyen bir hata oluştu';
       
       // Daha kullanıcı dostu hata mesajları
-      if (errorMessage.includes('is not valid JSON')) {
-        errorMessage = 'Model yüklenirken bağlantı hatası oluştu. Lütfen internet bağlantınızı kontrol edin ve sayfayı yenileyin.';
-      } else if (errorMessage.includes('Failed to fetch')) {
-        errorMessage = 'Model indirilemedi. İnternet bağlantınızı kontrol edin ve sayfayı yenileyin.';
+      if (errorMessage.includes('konuşma tanımayı desteklemiyor')) {
+        errorMessage = 'Tarayıcınız konuşma tanımayı desteklemiyor. Chrome, Edge veya Safari güncel sürümlerini kullanmayı deneyin.';
+      } else if (errorMessage.includes('oynatılamadı')) {
+        errorMessage = 'Ses dosyası oynatılamadı. Dosyanın bozuk olmadığından emin olun ve tekrar deneyin.';
+      } else if (errorMessage.includes('permission')) {
+        errorMessage = 'Mikrofon izni gerekli. Lütfen tarayıcı izinlerini kontrol edin.';
+      } else if (errorMessage.includes('network')) {
+        errorMessage = 'Ağ hatası oluştu. İnternet bağlantınızı kontrol edin ve tekrar deneyin.';
+      } else if (errorMessage.includes('Unsupported')) {
+        errorMessage = 'Desteklenmeyen ses formatı. MP3, WAV veya M4A formatında bir dosya yükleyin.';
       }
       
       setError(errorMessage);

@@ -1,8 +1,9 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "sesi-yaziya-cevir",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "Türkçe ses dosyalarını yazıya çeviren, tarayıcı tabanlı ücretsiz uygulama",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -11,12 +12,10 @@
   },
   "dependencies": {
     "lucide-react": "^0.344.0",
-    "onnxruntime-web": "^1.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-dropzone": "^14.2.3",
-    "react-router-dom": "^6.22.3",
-    "@xenova/transformers": "2.9.0"
+    "react-router-dom": "^6.22.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
@@ -33,5 +32,7 @@
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",
     "vite": "^5.4.2"
-  }
+  },
+  "author": "Emirhan Sevim",
+  "license": "MIT"
 }
