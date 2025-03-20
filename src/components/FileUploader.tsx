@@ -1,14 +1,15 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, File, X, AlertTriangle, HelpCircle } from 'lucide-react';
+import { Upload, File, X, AlertTriangle, HelpCircle, Cloud, Cpu, Mic } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { transcribeAudio } from '../services/transcription';
+import { transcribeAudio, TranscriptionProvider } from '../services/transcription';
 
 const FileUploader: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<string | null>(null);
+  const [provider, setProvider] = useState<TranscriptionProvider>('openai');
   const navigate = useNavigate();
   
   // Clear error after 5 seconds
@@ -68,8 +69,8 @@ const FileUploader: React.FC = () => {
       // Generate unique ID
       const transcriptionId = `tr_${Date.now()}`;
       
-      // Navigate to status page with file in state
-      navigate(`/status/${transcriptionId}`, { state: { file } });
+      // Navigate to status page with file in state and provider info
+      navigate(`/status/${transcriptionId}`, { state: { file, provider } });
       
     } catch (err: any) {
       console.error('Upload error:', err);
@@ -77,9 +78,70 @@ const FileUploader: React.FC = () => {
       setUploading(false);
     }
   };
+
+  // Provider seçim kartı bileşeni
+  const ProviderCard = ({ value, icon, title, description, isSelected, onClick }: {
+    value: TranscriptionProvider;
+    icon: React.ReactNode;
+    title: string;
+    description: string;
+    isSelected: boolean;
+    onClick: () => void;
+  }) => (
+    <div 
+      className={`p-4 border rounded-lg cursor-pointer transition-all ${
+        isSelected 
+          ? 'border-space-400 bg-space-50 shadow-lg shadow-space-400/10' 
+          : 'border-gray-200 hover:border-space-300 hover:bg-space-50/30'
+      }`}
+      onClick={onClick}
+    >
+      <div className="flex items-center mb-2">
+        <div className={`p-2 rounded-full ${isSelected ? 'bg-space-400/20' : 'bg-gray-100'}`}>
+          {icon}
+        </div>
+        <h3 className={`ml-3 font-medium ${isSelected ? 'text-space-600' : 'text-gray-700'}`}>{title}</h3>
+      </div>
+      <p className="text-sm text-gray-500">{description}</p>
+    </div>
+  );
   
   return (
     <div className="w-full max-w-2xl mx-auto">
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold mb-3 text-space-700">Ses Tanıma Hizmeti Seçin</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <ProviderCard
+            value="openai"
+            icon={<Cloud className="w-5 h-5 text-space-500" />}
+            title="OpenAI Whisper"
+            description="Yüksek doğruluklu, sunucu tabanlı transkripsiyon"
+            isSelected={provider === 'openai'}
+            onClick={() => setProvider('openai')}
+          />
+          <ProviderCard
+            value="huggingface"
+            icon={<Cpu className="w-5 h-5 text-space-500" />}
+            title="HuggingFace"
+            description="Ücretsiz ve açık kaynaklı AI modeli ile transkripsiyon"
+            isSelected={provider === 'huggingface'}
+            onClick={() => setProvider('huggingface')}
+          />
+          <ProviderCard
+            value="browser"
+            icon={<Mic className="w-5 h-5 text-space-500" />}
+            title="Tarayıcı API"
+            description="Tarayıcı tabanlı ses tanıma API'si (sınırlı destek)"
+            isSelected={provider === 'browser'}
+            onClick={() => setProvider('browser')}
+          />
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          Not: OpenAI Whisper ve HuggingFace, sunucu API anahtarı gerektirir. 
+          Tarayıcı API ise kaydedilmiş ses dosyalarında sınırlı destek sunar.
+        </p>
+      </div>
+
       <div 
         {...getRootProps()} 
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition bg-space-50

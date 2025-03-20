@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Clock, CheckCircle, AlertTriangle, Loader, ArrowLeft, Copy, Download } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { transcribeAudio, TranscriptionResult } from '../services/transcription';
+import { transcribeAudio, TranscriptionResult, TranscriptionProvider } from '../services/transcription';
 
 const TranscriptionStatus: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -14,8 +14,27 @@ const TranscriptionStatus: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<TranscriptionResult['status']>('processing');
   const [copiedText, setCopiedText] = useState(false);
+  const [provider, setProvider] = useState<TranscriptionProvider>('openai');
 
-  const attemptTranscription = useCallback(async (file: File) => {
+  // Bu fonksiyonu ekleyelim: tarayıcı bilgilerine göre kullanıcıya öneriler sunar
+  const getBrowserInfo = () => {
+    const userAgent = navigator.userAgent;
+    let browser = "tarayıcınız";
+    
+    if (userAgent.indexOf("Chrome") > -1) {
+      browser = "Chrome";
+    } else if (userAgent.indexOf("Safari") > -1) {
+      browser = "Safari";
+    } else if (userAgent.indexOf("Firefox") > -1) {
+      browser = "Firefox";
+    } else if (userAgent.indexOf("Edge") > -1) {
+      browser = "Edge";
+    }
+    
+    return browser;
+  };
+
+  const attemptTranscription = useCallback(async (file: File, provider: TranscriptionProvider) => {
     try {
       setStatus('processing');
       setError(null);
@@ -34,7 +53,7 @@ const TranscriptionStatus: React.FC = () => {
         } else {
           setProgress(90); // Tam sonuçlar geliyorsa
         }
-      });
+      }, provider);
       
       // Kontrol edelim: eğer sonuç açıklama içeren bir mesaj ise bunu hata olarak değerlendirelim
       if (finalText.includes('[Bu ses dosyası Web Speech API ile tanınamadı')) {
@@ -62,6 +81,10 @@ const TranscriptionStatus: React.FC = () => {
       } else if (errorMessage.includes('no-speech') || errorMessage.includes('Web Speech API kısıtlaması')) {
         const browser = getBrowserInfo();
         errorMessage = `Ses dosyası işlenirken bir hata oluştu: Konuşma tanıma hatası: no-speech\n\nÖnemli Not: Web tarayıcıları genellikle dosyadan ses çevirmeyi değil, mikrofondan canlı ses çevirmeyi destekler. ${browser} tarayıcısında bu kısıtlama nedeniyle ses dosyaları doğrudan metne çevrilemiyor.\n\nAlternatif olarak şunları deneyebilirsiniz:\n1. Farklı bir tarayıcı kullanmak\n2. Whisper API gibi farklı bir servis kullanmak`;
+      } else if (errorMessage.includes('API_KEY çevre değişkeni')) {
+        errorMessage = `API anahtarı ayarlanmamış. Netlify Functions için gerekli API anahtarı sunucu tarafında yapılandırılmamış. Lütfen site yöneticisiyle iletişime geçin.`;
+      } else if (errorMessage.includes('API Hatası')) {
+        errorMessage = `Sunucu transkripsiyon hatası: ${errorMessage}. Lütfen daha sonra tekrar deneyin veya farklı bir sağlayıcı seçin.`;
       }
       
       setError(errorMessage);
@@ -71,9 +94,12 @@ const TranscriptionStatus: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const file = location.state?.file;
-    if (file && status === 'processing') {
-      attemptTranscription(file);
+    const fileData = location.state?.file;
+    const providerData = location.state?.provider || 'openai';
+    setProvider(providerData); // Seçilen provider'ı state'e kaydet
+    
+    if (fileData && status === 'processing') {
+      attemptTranscription(fileData, providerData);
     }
   }, [location.state, status, attemptTranscription]);
 
@@ -165,22 +191,18 @@ const TranscriptionStatus: React.FC = () => {
     }
   };
 
-  // Bu fonksiyonu ekleyelim: tarayıcı bilgilerine göre kullanıcıya öneriler sunar
-  const getBrowserInfo = () => {
-    const userAgent = navigator.userAgent;
-    let browser = "tarayıcınız";
-    
-    if (userAgent.indexOf("Chrome") > -1) {
-      browser = "Chrome";
-    } else if (userAgent.indexOf("Safari") > -1) {
-      browser = "Safari";
-    } else if (userAgent.indexOf("Firefox") > -1) {
-      browser = "Firefox";
-    } else if (userAgent.indexOf("Edge") > -1) {
-      browser = "Edge";
+  // Kullanılan servis bilgisini göster
+  const getProviderName = () => {
+    switch (provider) {
+      case 'openai':
+        return 'OpenAI Whisper';
+      case 'huggingface':
+        return 'HuggingFace';
+      case 'browser':
+        return 'Tarayıcı Speech API';
+      default:
+        return 'Bilinmeyen Servis';
     }
-    
-    return browser;
   };
 
   return (
@@ -201,6 +223,10 @@ const TranscriptionStatus: React.FC = () => {
           <h2 className="text-2xl font-bold ml-3 bg-gradient-to-r from-space-400 to-purple-400 bg-clip-text text-transparent">
             {statusInfo.text}
           </h2>
+        </div>
+        
+        <div className="text-sm text-space-500 text-center mb-4">
+          Kullanılan Servis: <span className="font-medium">{getProviderName()}</span>
         </div>
         
         {status === 'processing' && (
@@ -251,7 +277,7 @@ const TranscriptionStatus: React.FC = () => {
         {status === 'failed' && error && (
           <div className="mt-8 p-6 bg-red-900/20 rounded-xl border border-red-500/30 text-red-400">
             <h3 className="font-medium mb-2">Hata:</h3>
-            <p>{error}</p>
+            <p className="whitespace-pre-wrap">{error}</p>
           </div>
         )}
         

@@ -1,6 +1,6 @@
 /**
- * Audio transcription service using Web Speech API and audio processing
- * 2025 technology stack with browser-based speech recognition
+ * Audio transcription service using Netlify Functions that connect to Whisper API
+ * 2025 technology stack with server-side speech recognition
  */
 
 export interface TranscriptionResult {
@@ -10,6 +10,8 @@ export interface TranscriptionResult {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   error?: string;
 }
+
+export type TranscriptionProvider = 'openai' | 'huggingface' | 'browser';
 
 // Ses dosyasını küçük parçalara bölen yardımcı fonksiyon
 async function splitAudioIntoChunks(audioBuffer: AudioBuffer, chunkDuration: number = 15) {
@@ -117,71 +119,23 @@ async function loadAudioFile(file: File): Promise<AudioBuffer> {
   return await audioContext.decodeAudioData(arrayBuffer);
 }
 
-// Ses dosyalarını transkript etme fonksiyonu - 2025 modeli
-export async function transcribeAudio(
-  file: File,
-  onProgress?: (interim: string) => void
-): Promise<string> {
-  try {
-    // Dosya boyutunu kontrol et
-    if (file.size > 50 * 1024 * 1024) {
-      throw new Error('Dosya boyutu çok büyük. Maksimum 50MB desteklenmektedir.');
-    }
-
-    console.log("Transcription başlatılıyor...");
-    onProgress?.("Ses dosyası işleniyor. Lütfen bekleyin...");
-    
-    try {
-      // Ses dosyasını AudioBuffer'a yükle
-      const audioBuffer = await loadAudioFile(file);
-      
-      // Ses dosyasını küçük parçalara böl
-      console.log("Ses dosyası parçalara bölünüyor...");
-      onProgress?.("Ses dosyası parçalara bölünüyor...");
-      const chunks = await splitAudioIntoChunks(audioBuffer);
-      
-      console.log(`${chunks.length} parça oluşturuldu.`);
-      
-      // Her bir parçayı işle ve transkript et
-      let fullTranscription = '';
-      
-      for (let i = 0; i < chunks.length; i++) {
-        console.log(`Parça ${i+1}/${chunks.length} işleniyor...`);
-        onProgress?.(`Parça ${i+1}/${chunks.length} işleniyor... (${Math.round((i / chunks.length) * 100)}%)`);
-        
-        // Chunk'ı WAV formatına dönüştür
-        const wavBlob = await audioBufferToWav(chunks[i]);
-        
-        // Web Speech API kullanarak transkript et
-        const chunkText = await recognizeSpeech(wavBlob);
-        fullTranscription += ' ' + chunkText;
-        
-        // Ara sonucu göster
-        if (onProgress) {
-          onProgress(fullTranscription.trim());
-        }
-      }
-      
-      console.log("Transkripsiyon tamamlandı!");
-      return fullTranscription.trim();
-      
-    } catch (error) {
-      console.error('İşleme hatası:', error);
-      throw new Error(`Ses dosyası işlenirken bir hata oluştu: ${error.message}`);
-    }
-  } catch (error) {
-    console.error('Transcription error:', error);
-    
-    if (error instanceof Error) {
-      throw error;
-    }
-    
-    throw new Error('Ses dosyası işlenirken bir hata oluştu. Lütfen tekrar deneyin.');
-  }
+// Blob'ı base64'e dönüştüren yardımcı fonksiyon
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      // Data URL formatından (data:audio/wav;base64,BASE64_STRING) sadece base64 kısmını al
+      const base64 = base64String.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
-// Web Speech API'yi kullanarak konuşma tanıma - değiştirildi
-async function recognizeSpeech(audioBlob: Blob): Promise<string> {
+// Web Speech API ile tarayıcı üzerinde transkripsiyon - çalışmayabilir
+async function recognizeSpeechWithBrowser(audioBlob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     try {
       // YAKLAŞIM 1: AudioContext ve WebAudio API kullanarak ses analizi yapalım
@@ -203,6 +157,110 @@ async function recognizeSpeech(audioBlob: Blob): Promise<string> {
       reject(new Error('Ses işleme hatası oluştu: ' + error.message));
     }
   });
+}
+
+// Netlify Function aracılığıyla Whisper API ile transkripsiyon
+async function transcribeWithServerApi(audioBase64: string, provider: TranscriptionProvider = 'openai'): Promise<string> {
+  try {
+    const response = await fetch('/api/transcribe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        audio: audioBase64,
+        language: 'tr',
+        provider: provider
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`API Hatası: ${errorData.error || response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.text;
+  } catch (error) {
+    console.error('Sunucu transkripsiyon hatası:', error);
+    throw error;
+  }
+}
+
+// Ses dosyalarını transkript etme fonksiyonu - 2025 modeli
+export async function transcribeAudio(
+  file: File,
+  onProgress?: (interim: string) => void,
+  provider: TranscriptionProvider = 'openai'
+): Promise<string> {
+  try {
+    // Dosya boyutunu kontrol et
+    if (file.size > 50 * 1024 * 1024) {
+      throw new Error('Dosya boyutu çok büyük. Maksimum 50MB desteklenmektedir.');
+    }
+
+    console.log("Transcription başlatılıyor...");
+    onProgress?.("Ses dosyası işleniyor. Lütfen bekleyin...");
+    
+    try {
+      if (provider === 'browser') {
+        // Tarayıcı tabanlı tanıma (sınırlı destek)
+        const audioContext = new AudioContext();
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        const wavBlob = await audioBufferToWav(audioBuffer);
+        return await recognizeSpeechWithBrowser(wavBlob);
+      } else {
+        // Sunucu tabanlı API tanıma (Whisper API veya HuggingFace)
+        // Ses dosyasını AudioBuffer'a yükle
+        const audioBuffer = await loadAudioFile(file);
+        
+        // Ses dosyasını küçük parçalara böl
+        console.log("Ses dosyası parçalara bölünüyor...");
+        onProgress?.("Ses dosyası parçalara bölünüyor...");
+        const chunks = await splitAudioIntoChunks(audioBuffer);
+        
+        console.log(`${chunks.length} parça oluşturuldu.`);
+        
+        // Her bir parçayı işle ve transkript et
+        let fullTranscription = '';
+        
+        for (let i = 0; i < chunks.length; i++) {
+          console.log(`Parça ${i+1}/${chunks.length} işleniyor...`);
+          onProgress?.(`Parça ${i+1}/${chunks.length} işleniyor... (${Math.round((i / chunks.length) * 100)}%)`);
+          
+          // Chunk'ı WAV formatına dönüştür
+          const wavBlob = await audioBufferToWav(chunks[i]);
+          
+          // Wav'ı base64'e dönüştür
+          const base64Audio = await blobToBase64(wavBlob);
+          
+          // API kullanarak transkript et
+          const chunkText = await transcribeWithServerApi(base64Audio, provider);
+          fullTranscription += ' ' + chunkText;
+          
+          // Ara sonucu göster
+          if (onProgress) {
+            onProgress(fullTranscription.trim());
+          }
+        }
+        
+        console.log("Transkripsiyon tamamlandı!");
+        return fullTranscription.trim();
+      }
+    } catch (error) {
+      console.error('İşleme hatası:', error);
+      throw new Error(`Ses dosyası işlenirken bir hata oluştu: ${error.message}`);
+    }
+  } catch (error) {
+    console.error('Transcription error:', error);
+    
+    if (error instanceof Error) {
+      throw error;
+    }
+    
+    throw new Error('Ses dosyası işlenirken bir hata oluştu. Lütfen tekrar deneyin.');
+  }
 }
 
 // TypeScript için global SpeechRecognition arayüzü tanımlaması

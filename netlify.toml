@@ -1,10 +1,17 @@
 [build]
-  publish = "dist"
   command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[dev]
+  command = "npm run dev"
+  port = 3000
+  publish = "dist"
+  functions = "netlify/functions"
 
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
   status = 200
 
 [[headers]]
