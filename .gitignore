@@ -34,3 +34,6 @@ dist-ssr
 .cache/
 .bolt/
 model-cache/
+
+# Local Netlify folder
+.netlify
