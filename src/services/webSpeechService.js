@@ -7,6 +7,9 @@ class WebSpeechService {
     this.isLoading = false;
     this.isAvailable = this.checkAvailability();
     this.recognition = null;
+    this.isSystemAudio = false; // Sistem sesi kullanımını belirten değişken
+    this.audioContext = null;
+    this.audioElement = null;
   }
 
   // Web Speech API'nin kullanılabilir olup olmadığını kontrol et
@@ -43,39 +46,163 @@ class WebSpeechService {
     }
   }
 
-  // Ses dosyasını doğrudan işleyemez, ancak AudioContext ile çalabilir
-  // ve mikrofondan ses tanıma yapabilir
+  // Kullanıcıya sistem sesi izni isteme
+  async requestSystemAudio() {
+    try {
+      // Eğer tarayıcı mediaDevices destekliyorsa
+      if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          },
+          video: false
+        });
+        
+        // Sadece ses izni verildiyse
+        if (displayStream.getAudioTracks().length > 0) {
+          this.isSystemAudio = true;
+          console.log('Sistem sesi izni alındı');
+          return displayStream;
+        } else {
+          throw new Error('Sistem sesi izni verilmedi');
+        }
+      } else {
+        throw new Error('Bu tarayıcı sistem sesi yakalamayı desteklemiyor');
+      }
+    } catch (error) {
+      console.error('Sistem sesi izni alınamadı:', error);
+      return null;
+    }
+  }
+
+  // Ses dosyasını oynatıp, söylenenleri tanıma
   async transcribeFromFile(audioFile, options = {}) {
     try {
       if (!this.isAvailable) {
         throw new Error('Web Speech API bu tarayıcıda desteklenmiyor.');
       }
+
+      // Audio element ile ses dosyası çalma yaklaşımı
+      const audioUrl = URL.createObjectURL(audioFile);
       
-      // Ses dosyası yerine, mikrofondan giriş alarak transkripsiyon yapıyoruz
-      console.warn('Web Speech API doğrudan ses dosyası işleyemez. Bunun yerine dosya çalınıp, mikrofondan kayıt yapılacak.');
+      // Eğer önceki audio elementi varsa temizle
+      if (this.audioElement) {
+        this.audioElement.pause();
+        this.audioElement.src = '';
+        document.body.removeChild(this.audioElement);
+      }
       
-      // AudioContext ile ses dosyasını çal
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const audioArrayBuffer = await audioFile.arrayBuffer();
-      const audioBuffer = await audioContext.decodeAudioData(audioArrayBuffer);
+      // Audio element oluştur ve ekle
+      this.audioElement = document.createElement('audio');
+      this.audioElement.src = audioUrl;
+      this.audioElement.style.display = 'none';
+      document.body.appendChild(this.audioElement);
       
-      // Sesi oynatmak için kaynak oluştur
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      
-      // Mikrofondan kayıt yapmak için Web Speech API kullan
-      const result = await this.transcribeFromMicrophone(options);
-      
-      // Ses dosyasını çal ve bitince durdur
-      source.start(0);
-      source.onended = () => {
-        audioContext.close();
-      };
-      
-      return result;
+      return new Promise((resolve, reject) => {
+        try {
+          // SpeechRecognition nesnesini hazırla
+          if (!this.recognition) {
+            this.initialize();
+          }
+          
+          // Dil ayarları
+          this.recognition.lang = options.language === 'auto' ? 'tr-TR' : options.language || 'tr-TR';
+          
+          // Tanıma sonuçları
+          this.recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            const confidence = event.results[0][0].confidence;
+            
+            resolve({
+              text: transcript,
+              language: this.recognition.lang,
+              confidence: confidence,
+              chunks: []
+            });
+          };
+          
+          // Tanıma hataları
+          this.recognition.onerror = (event) => {
+            // Dosya çalışırken hata olduğunda ne yapılacak
+            if (event.error === 'no-speech') {
+              // Ses yoksa veya tanımada hata varsa
+              console.warn('Ses tanıma hatası: ses algılanamadı');
+              this.audioElement.pause(); // Dosyayı durdur
+              
+              // Yine de text ile hata mesajı döndür
+              resolve({
+                text: 'Ses dosyasında konuşma algılanamadı. Lütfen farklı bir dosya deneyin.',
+                language: this.recognition.lang,
+                confidence: 0,
+                chunks: [],
+                error: event.error
+              });
+            } else {
+              reject(new Error(`Konuşma tanıma hatası: ${event.error}`));
+            }
+          };
+          
+          // Tanıma tamamlandığında
+          this.recognition.onend = () => {
+            // Dosyayı durdur
+            this.audioElement.pause();
+          };
+          
+          // Ses dosyasının yüklenmesi
+          this.audioElement.oncanplay = () => {
+            // Önce ses tanımayı başlat, sonra sesi çal
+            this.recognition.start();
+            
+            // Kısa bir bekleme ile ses çalmayı başlat
+            setTimeout(() => {
+              this.audioElement.play().catch(e => {
+                console.error('Ses çalma hatası:', e);
+                reject(e);
+              });
+            }, 500);
+          };
+          
+          // Dosya bitiminde tanımayı durdur
+          this.audioElement.onended = () => {
+            setTimeout(() => {
+              try {
+                this.recognition.stop();
+              } catch (e) {
+                console.log('Tanıma zaten durmuş olabilir:', e);
+              }
+            }, 1000); // Dosya bittikten 1 saniye sonra durdur
+          };
+          
+          // Yükleme başlat
+          this.audioElement.load();
+          
+          // En fazla 60 saniye sonra işlemi durdur
+          setTimeout(() => {
+            try {
+              this.recognition.stop();
+              this.audioElement.pause();
+              
+              // Hâlâ sonuç yoksa
+              resolve({
+                text: 'Ses işleme zaman aşımına uğradı. Ses dosyası çok uzun olabilir.',
+                language: this.recognition.lang,
+                confidence: 0,
+                chunks: [],
+                timeout: true
+              });
+            } catch (e) {
+              console.log('Timeout temizleme hatası:', e);
+            }
+          }, 60000);
+          
+        } catch (error) {
+          reject(error);
+        }
+      });
     } catch (error) {
-      console.error('Ses dosyası işlenirken hata:', error);
+      console.error('Ses dosyası işleme hatası:', error);
       throw error;
     }
   }
@@ -126,7 +253,11 @@ class WebSpeechService {
         // 30 saniye sonra zorla bitir (eğer onend tetiklenmezse)
         setTimeout(() => {
           if (this.recognition) {
-            this.recognition.stop();
+            try {
+              this.recognition.stop();
+            } catch (e) {
+              console.log('Timeout durma hatası:', e);
+            }
           }
         }, 30000);
         
