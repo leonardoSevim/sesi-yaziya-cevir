@@ -5,13 +5,6 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["node-fetch", "form-data", "openai"]
-  function_timeout_seconds = 26
-
-[dev]
-  command = "npm run dev"
-  port = 3000
-  publish = "dist"
 
 [[redirects]]
   from = "/api/*"
