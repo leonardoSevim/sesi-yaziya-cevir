@@ -12,6 +12,7 @@ export interface TranscriptionResult {
 }
 
 export type TranscriptionProvider = 'openai' | 'huggingface' | 'browser';
+export type HuggingFaceModel = 'whisper-large-v3' | 'whisper-large-v3-turbo' | 'whisper-medium' | 'whisper-small';
 
 // Ses dosyasını küçük parçalara bölen yardımcı fonksiyon
 async function splitAudioIntoChunks(audioBuffer: AudioBuffer, chunkDuration: number = 15) {
@@ -160,7 +161,11 @@ async function recognizeSpeechWithBrowser(audioBlob: Blob): Promise<string> {
 }
 
 // Netlify Function aracılığıyla Whisper API ile transkripsiyon
-async function transcribeWithServerApi(audioBase64: string, provider: TranscriptionProvider = 'openai'): Promise<string> {
+async function transcribeWithServerApi(
+  audioBase64: string, 
+  provider: TranscriptionProvider = 'openai',
+  model?: HuggingFaceModel
+): Promise<string> {
   try {
     const response = await fetch('/api/transcribe', {
       method: 'POST',
@@ -170,7 +175,8 @@ async function transcribeWithServerApi(audioBase64: string, provider: Transcript
       body: JSON.stringify({
         audio: audioBase64,
         language: 'tr',
-        provider: provider
+        provider: provider,
+        model: model
       })
     });
 
@@ -191,7 +197,8 @@ async function transcribeWithServerApi(audioBase64: string, provider: Transcript
 export async function transcribeAudio(
   file: File,
   onProgress?: (interim: string) => void,
-  provider: TranscriptionProvider = 'openai'
+  provider: TranscriptionProvider = 'openai',
+  model?: HuggingFaceModel
 ): Promise<string> {
   try {
     // Dosya boyutunu kontrol et
@@ -236,7 +243,7 @@ export async function transcribeAudio(
           const base64Audio = await blobToBase64(wavBlob);
           
           // API kullanarak transkript et
-          const chunkText = await transcribeWithServerApi(base64Audio, provider);
+          const chunkText = await transcribeWithServerApi(base64Audio, provider, model);
           fullTranscription += ' ' + chunkText;
           
           // Ara sonucu göster

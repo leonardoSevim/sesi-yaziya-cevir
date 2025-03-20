@@ -1,16 +1,25 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, File, X, AlertTriangle, HelpCircle, Cloud, Cpu, Mic } from 'lucide-react';
+import { Upload, File, X, AlertTriangle, HelpCircle, Cloud, Cpu, Mic, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { transcribeAudio, TranscriptionProvider } from '../services/transcription';
+import { transcribeAudio, TranscriptionProvider, HuggingFaceModel } from '../services/transcription';
 
 const FileUploader: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<string | null>(null);
-  const [provider, setProvider] = useState<TranscriptionProvider>('openai');
+  const [provider, setProvider] = useState<TranscriptionProvider>('huggingface');
+  const [hfModel, setHfModel] = useState<HuggingFaceModel>('whisper-medium');
+  const [showModelOptions, setShowModelOptions] = useState(false);
+  
   const navigate = useNavigate();
+  
+  // Model seçeneklerini provider değiştiğinde güncelle
+  useEffect(() => {
+    // Eğer provider HuggingFace değilse, model seçeneklerini gizle
+    setShowModelOptions(provider === 'huggingface');
+  }, [provider]);
   
   // Clear error after 5 seconds
   useEffect(() => {
@@ -70,7 +79,13 @@ const FileUploader: React.FC = () => {
       const transcriptionId = `tr_${Date.now()}`;
       
       // Navigate to status page with file in state and provider info
-      navigate(`/status/${transcriptionId}`, { state: { file, provider } });
+      navigate(`/status/${transcriptionId}`, { 
+        state: { 
+          file, 
+          provider,
+          model: provider === 'huggingface' ? hfModel : undefined
+        } 
+      });
       
     } catch (err: any) {
       console.error('Upload error:', err);
@@ -103,6 +118,30 @@ const FileUploader: React.FC = () => {
         <h3 className={`ml-3 font-medium ${isSelected ? 'text-space-600' : 'text-gray-700'}`}>{title}</h3>
       </div>
       <p className="text-sm text-gray-500">{description}</p>
+    </div>
+  );
+
+  // HuggingFace model seçim kartı
+  const ModelOptionCard = ({ value, title, description, isSelected, onClick }: {
+    value: HuggingFaceModel;
+    title: string;
+    description: string;
+    isSelected: boolean;
+    onClick: () => void;
+  }) => (
+    <div 
+      className={`p-4 border rounded-lg cursor-pointer transition-all ${
+        isSelected 
+          ? 'border-purple-400 bg-purple-50 shadow-sm' 
+          : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/30'
+      }`}
+      onClick={onClick}
+    >
+      <div className="flex items-center mb-1">
+        {isSelected && <Check className="w-4 h-4 text-purple-500 mr-2" />}
+        <h3 className={`font-medium ${isSelected ? 'text-purple-600' : 'text-gray-700'}`}>{title}</h3>
+      </div>
+      <p className="text-xs text-gray-500">{description}</p>
     </div>
   );
   
@@ -141,6 +180,42 @@ const FileUploader: React.FC = () => {
           Tarayıcı API ise kaydedilmiş ses dosyalarında sınırlı destek sunar.
         </p>
       </div>
+
+      {showModelOptions && (
+        <div className="mb-8 bg-purple-50/50 p-4 rounded-lg border border-purple-100">
+          <h3 className="text-md font-semibold mb-3 text-purple-700">HuggingFace Model Seçimi</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <ModelOptionCard
+              value="whisper-large-v3"
+              title="Whisper Large V3"
+              description="En doğru sonuçlar, tüm diller için iyi performans, daha yavaş"
+              isSelected={hfModel === 'whisper-large-v3'}
+              onClick={() => setHfModel('whisper-large-v3')}
+            />
+            <ModelOptionCard
+              value="whisper-large-v3-turbo"
+              title="Whisper Large V3 Turbo"
+              description="Optimize edilmiş büyük model, hız ve doğruluk dengesi"
+              isSelected={hfModel === 'whisper-large-v3-turbo'}
+              onClick={() => setHfModel('whisper-large-v3-turbo')}
+            />
+            <ModelOptionCard
+              value="whisper-medium"
+              title="Whisper Medium"
+              description="Orta boyutlu model, çoğu durum için yeterli performans"
+              isSelected={hfModel === 'whisper-medium'}
+              onClick={() => setHfModel('whisper-medium')}
+            />
+            <ModelOptionCard
+              value="whisper-small"
+              title="Whisper Small"
+              description="Küçük ve hızlı model, daha kısa ve basit konuşmalar için ideal"
+              isSelected={hfModel === 'whisper-small'}
+              onClick={() => setHfModel('whisper-small')}
+            />
+          </div>
+        </div>
+      )}
 
       <div 
         {...getRootProps()} 

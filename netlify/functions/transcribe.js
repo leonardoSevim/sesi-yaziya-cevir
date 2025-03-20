@@ -50,7 +50,7 @@ class TranscriptionService {
   }
 
   // Alternatif Ücretsiz API Sağlayıcısı: HuggingFace
-  async transcribeWithHuggingFace(audioBuffer) {
+  async transcribeWithHuggingFace(audioBuffer, options = {}) {
     try {
       // API anahtarı yoksa hata ver
       if (!this.apiKey) {
@@ -64,11 +64,40 @@ class TranscriptionService {
       // FormData oluştur
       const form = new FormData();
       form.append('audio_file', fs.createReadStream(tempFilePath));
-      form.append('language', 'tr');
+      form.append('language', options.language || 'tr');
+
+      // Model seçimi
+      let modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3';
+      
+      // Eğer options içinde model belirtilmişse onu kullan
+      if (options.model) {
+        switch (options.model) {
+          case 'whisper-large-v3':
+            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3';
+            break;
+          case 'whisper-large-v3-turbo':
+            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo';
+            break;
+          case 'whisper-medium':
+            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-medium';
+            break;
+          case 'whisper-small':
+            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-small';
+            break;
+          case 'whisper-tiny':
+            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-tiny';
+            break;
+          case 'turkish-specific':
+            modelEndpoint = 'https://api-inference.huggingface.co/models/jonatasgrosman/wav2vec2-large-xlsr-53-turkish';
+            break;
+          default:
+            modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3';
+        }
+      }
 
       // HuggingFace API'ya gönder
       const response = await fetch(
-        'https://api-inference.huggingface.co/models/openai/whisper-large-v3',
+        modelEndpoint,
         {
           method: 'POST',
           headers: {
@@ -86,7 +115,7 @@ class TranscriptionService {
       }
 
       const result = await response.json();
-      return { text: result.text };
+      return { text: result.text || result.sentence || result.transcription || '' };
     } catch (error) {
       console.error('HuggingFace transkripsiyon hatası:', error);
       throw error;
@@ -117,6 +146,7 @@ exports.handler = async function(event, context) {
     const base64Audio = body.audio;
     const language = body.language || 'tr';
     const provider = body.provider || 'openai';
+    const model = body.model; // Model seçimi
     
     if (!base64Audio) {
       return {
@@ -139,7 +169,7 @@ exports.handler = async function(event, context) {
     if (provider === 'openai') {
       result = await service.transcribeWithOpenAI(buffer, { language });
     } else if (provider === 'huggingface') {
-      result = await service.transcribeWithHuggingFace(buffer);
+      result = await service.transcribeWithHuggingFace(buffer, { language, model });
     } else {
       return {
         statusCode: 400,

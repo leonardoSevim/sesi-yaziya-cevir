@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Clock, CheckCircle, AlertTriangle, Loader, ArrowLeft, Copy, Download } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { transcribeAudio, TranscriptionResult, TranscriptionProvider } from '../services/transcription';
+import { transcribeAudio, TranscriptionResult, TranscriptionProvider, HuggingFaceModel } from '../services/transcription';
 
 const TranscriptionStatus: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +15,7 @@ const TranscriptionStatus: React.FC = () => {
   const [status, setStatus] = useState<TranscriptionResult['status']>('processing');
   const [copiedText, setCopiedText] = useState(false);
   const [provider, setProvider] = useState<TranscriptionProvider>('openai');
+  const [model, setModel] = useState<HuggingFaceModel | undefined>(undefined);
 
   // Bu fonksiyonu ekleyelim: tarayıcı bilgilerine göre kullanıcıya öneriler sunar
   const getBrowserInfo = () => {
@@ -34,7 +35,7 @@ const TranscriptionStatus: React.FC = () => {
     return browser;
   };
 
-  const attemptTranscription = useCallback(async (file: File, provider: TranscriptionProvider) => {
+  const attemptTranscription = useCallback(async (file: File, provider: TranscriptionProvider, model?: HuggingFaceModel) => {
     try {
       setStatus('processing');
       setError(null);
@@ -53,7 +54,7 @@ const TranscriptionStatus: React.FC = () => {
         } else {
           setProgress(90); // Tam sonuçlar geliyorsa
         }
-      }, provider);
+      }, provider, model);
       
       // Kontrol edelim: eğer sonuç açıklama içeren bir mesaj ise bunu hata olarak değerlendirelim
       if (finalText.includes('[Bu ses dosyası Web Speech API ile tanınamadı')) {
@@ -96,10 +97,13 @@ const TranscriptionStatus: React.FC = () => {
   useEffect(() => {
     const fileData = location.state?.file;
     const providerData = location.state?.provider || 'openai';
+    const modelData = location.state?.model;
+    
     setProvider(providerData); // Seçilen provider'ı state'e kaydet
+    setModel(modelData); // Seçilen modeli state'e kaydet
     
     if (fileData && status === 'processing') {
-      attemptTranscription(fileData, providerData);
+      attemptTranscription(fileData, providerData, modelData);
     }
   }, [location.state, status, attemptTranscription]);
 
@@ -205,6 +209,24 @@ const TranscriptionStatus: React.FC = () => {
     }
   };
 
+  // Kullanılan model bilgisini göster
+  const getModelName = () => {
+    if (!model || provider !== 'huggingface') return null;
+    
+    switch (model) {
+      case 'whisper-large-v3':
+        return 'Whisper Large V3';
+      case 'whisper-large-v3-turbo':
+        return 'Whisper Large V3 Turbo';
+      case 'whisper-medium':
+        return 'Whisper Medium';
+      case 'whisper-small':
+        return 'Whisper Small';
+      default:
+        return model;
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="flex items-center mb-6">
@@ -227,6 +249,9 @@ const TranscriptionStatus: React.FC = () => {
         
         <div className="text-sm text-space-500 text-center mb-4">
           Kullanılan Servis: <span className="font-medium">{getProviderName()}</span>
+          {getModelName() && (
+            <> / Model: <span className="font-medium">{getModelName()}</span></>
+          )}
         </div>
         
         {status === 'processing' && (
