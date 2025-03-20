@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gradient-to-b from-space-50 to-space-100 min-h-screen text-space-800;
+  }
+  
+  /* Preload Inter font */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better focus outlines for accessibility */
+:focus-visible {
+  @apply outline-space-400 outline-offset-2 outline-2;
+}
+
+/* Custom file upload button */
+input[type="file"] {
+  @apply hidden;
+}
+
+/* Animation for loading status */
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
