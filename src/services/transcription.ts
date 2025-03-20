@@ -7,17 +7,17 @@
 import { pipeline, env } from '@xenova/transformers';
 import * as ort from 'onnxruntime-web';
 
-// Configure ONNX runtime - düzeltilmiş yollar
+// CORS ayarları
+env.allowCrossOriginRequests = true;
+env.allowLocalModels = false;
+env.useCDN = true;
+
+// Configure ONNX runtime
 env.backends.onnx.wasm.wasmPaths = {
   'ort-wasm.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm.wasm',
   'ort-wasm-simd.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-simd.wasm',
   'ort-wasm-threaded.wasm': 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.0/dist/ort-wasm-threaded.wasm'
 };
-
-// Model ve token ayarları
-env.allowLocalModels = false;
-env.useCDN = true;
-env.remoteHost = 'https://huggingface.co';
 
 // Register ONNX backend
 if (ort.env) {
@@ -38,12 +38,11 @@ async function initializePipeline() {
   if (!transcriptionPipeline) {
     try {
       console.log("Pipeline başlatılıyor...");
-      transcriptionPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', {
-        revision: 'main',
+      // Daha küçük ve daha hızlı model kullanılıyor
+      transcriptionPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
         quantized: true,
-        cache_dir: '/tmp/models',
         progress_callback: (progress) => {
-          if (progress && progress.progress) {
+          if (progress && typeof progress.progress === 'number') {
             const percentage = Math.round(progress.progress * 100);
             console.log(`Model yükleniyor: ${percentage}%`);
           }
