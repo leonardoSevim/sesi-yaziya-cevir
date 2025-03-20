@@ -8,15 +8,10 @@
   external_node_modules = ["node-fetch", "form-data", "openai"]
   timeout = 26
 
-[functions.transcribe]
-  memory = 1024
-  timeout = 26
-
 [dev]
   command = "npm run dev"
   port = 3000
   publish = "dist"
-  functions = "netlify/functions"
 
 [[redirects]]
   from = "/api/*"
