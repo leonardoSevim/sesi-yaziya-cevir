@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Mic, GitHub, ExternalLink } from 'lucide-react';
+import { Mic, Github, ExternalLink } from 'lucide-react';
 
 const Layout: React.FC = () => {
   const location = useLocation();
@@ -36,7 +36,7 @@ const Layout: React.FC = () => {
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-purple-600 transition-colors"
             >
-              <GitHub className="w-4 h-4" />
+              <Github className="w-4 h-4" />
               <span>GitHub</span>
             </a>
           </nav>
