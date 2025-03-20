@@ -95,23 +95,55 @@ class TranscriptionService {
         }
       }
 
-      // HuggingFace API'ya gönder
-      const response = await fetch(
-        modelEndpoint,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          body: form
+      // 502 hataları için yeniden deneme mekanizması
+      const maxRetries = 3;
+      let retryCount = 0;
+      let response = null;
+      let lastError = null;
+
+      while (retryCount < maxRetries) {
+        try {
+          console.log(`HuggingFace API isteği gönderiliyor (Deneme ${retryCount + 1}/${maxRetries})...`);
+          
+          // HuggingFace API'ya gönder
+          response = await fetch(
+            modelEndpoint,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${this.apiKey}`
+              },
+              body: form
+            }
+          );
+          
+          if (response.ok) {
+            break; // Başarılı yanıt alındı, döngüden çık
+          } else if (response.status === 502 || response.status === 500 || response.status === 504) {
+            // Gateway hatası, yeniden dene
+            lastError = `API Sunucu Hatası: ${response.status} - ${response.statusText}`;
+            console.log(`Yeniden deneniyor... (${retryCount + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 saniye bekle
+            retryCount++;
+          } else {
+            // Diğer hatalar için doğrudan hata fırlat
+            throw new Error(`API error: ${response.status} - ${response.statusText}`);
+          }
+        } catch (error) {
+          lastError = error;
+          if (retryCount >= maxRetries - 1) {
+            throw error; // Maksimum deneme sayısına ulaşıldı
+          }
+          retryCount++;
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 saniye bekle
         }
-      );
+      }
 
       // Geçici dosyayı sil
       await unlinkAsync(tempFilePath);
 
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
+      if (!response || !response.ok) {
+        throw new Error(lastError || 'API isteği başarısız');
       }
 
       const result = await response.json();

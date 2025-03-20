@@ -84,8 +84,10 @@ const TranscriptionStatus: React.FC = () => {
         errorMessage = `Ses dosyası işlenirken bir hata oluştu: Konuşma tanıma hatası: no-speech\n\nÖnemli Not: Web tarayıcıları genellikle dosyadan ses çevirmeyi değil, mikrofondan canlı ses çevirmeyi destekler. ${browser} tarayıcısında bu kısıtlama nedeniyle ses dosyaları doğrudan metne çevrilemiyor.\n\nAlternatif olarak şunları deneyebilirsiniz:\n1. Farklı bir tarayıcı kullanmak\n2. Whisper API gibi farklı bir servis kullanmak`;
       } else if (errorMessage.includes('API_KEY çevre değişkeni')) {
         errorMessage = `API anahtarı ayarlanmamış. Netlify Functions için gerekli API anahtarı sunucu tarafında yapılandırılmamış. Lütfen site yöneticisiyle iletişime geçin.`;
+      } else if (errorMessage.includes('API Gateway Hatası') || errorMessage.includes('502') || errorMessage.includes('500')) {
+        errorMessage = `HuggingFace API sunucu hatası: ${errorMessage}\n\nBu durum genellikle aşağıdaki sebeplerden kaynaklanır:\n1. HuggingFace sunucuları şu anda yoğun olabilir\n2. Internet bağlantınızda bir sorun olabilir\n3. Seçilen model (özellikle large modelleri) geçici olarak kullanılamıyor olabilir\n\nLütfen daha küçük bir model seçerek tekrar deneyin (örn. whisper-small veya whisper-tiny) ya da birkaç dakika sonra tekrar deneyin.`;
       } else if (errorMessage.includes('API Hatası')) {
-        errorMessage = `Sunucu transkripsiyon hatası: ${errorMessage}. Lütfen daha sonra tekrar deneyin veya farklı bir sağlayıcı seçin.`;
+        errorMessage = `Sunucu transkripsiyon hatası: ${errorMessage}.\n\nLütfen daha sonra tekrar deneyin veya daha küçük bir model seçin. HuggingFace API'nin ücretsiz sürümü için kullanım limitleri düşüktür. Whisper-small veya whisper-tiny modeli daha iyi çalışabilir.`;
       }
       
       setError(errorMessage);

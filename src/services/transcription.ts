@@ -167,26 +167,60 @@ async function transcribeWithServerApi(
   model?: HuggingFaceModel
 ): Promise<string> {
   try {
-    const response = await fetch('/api/transcribe', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        audio: audioBase64,
-        language: 'tr',
-        provider: provider,
-        model: model
-      })
-    });
+    // Yeniden deneme ayarları
+    const maxRetries = 3;
+    let retryCount = 0;
+    let lastError: Error | null = null;
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`API Hatası: ${errorData.error || response.statusText}`);
+    while (retryCount < maxRetries) {
+      try {
+        console.log(`API isteği gönderiliyor (Deneme ${retryCount + 1}/${maxRetries})...`);
+        
+        const response = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            audio: audioBase64,
+            language: 'tr',
+            provider: provider,
+            model: model
+          })
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          return result.text;
+        } else if (response.status === 502 || response.status === 500 || response.status === 504) {
+          // Gateway hatası, yeniden deneyelim
+          const errorText = await response.text().catch(() => 'İçerik alınamadı');
+          lastError = new Error(`API Gateway Hatası (${response.status}): ${errorText}`);
+          console.warn(`API gateway hatası (${response.status}), yeniden deneniyor (${retryCount + 1}/${maxRetries})...`);
+          retryCount++;
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 saniye bekleyelim
+        } else {
+          // Diğer hata durumları
+          const errorData = await response.json().catch(() => ({ error: response.statusText }));
+          throw new Error(`API Hatası (${response.status}): ${errorData.error || response.statusText}`);
+        }
+      } catch (error) {
+        console.error(`API isteği hatası (Deneme ${retryCount + 1}/${maxRetries}):`, error);
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (retryCount >= maxRetries - 1) {
+          // Son deneme başarısız oldu, hatayı fırlat
+          throw lastError;
+        }
+        
+        // Yeniden denemeden önce bekle
+        retryCount++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
 
-    const result = await response.json();
-    return result.text;
+    // Bu noktaya gelinmemeli, ancak TypeScript için bir dönüş değeri gerekli
+    throw lastError || new Error('Bilinmeyen bir API hatası oluştu');
   } catch (error) {
     console.error('Sunucu transkripsiyon hatası:', error);
     throw error;
