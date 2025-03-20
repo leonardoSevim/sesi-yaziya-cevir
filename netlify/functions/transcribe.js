@@ -1,11 +1,13 @@
-const { OpenAI } = require('openai');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { promisify } = require('util');
+import { OpenAI } from 'openai';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { promisify } from 'util';
+import FormData from 'form-data';
+import nodeFetch from 'node-fetch';
+
 const writeFileAsync = promisify(fs.writeFile);
 const unlinkAsync = promisify(fs.unlink);
-const FormData = require('form-data');
 
 // Hızlı bir şekilde farklı API sağlayıcıları ile çalışabilmek için bir wrapper
 class TranscriptionService {
@@ -56,9 +58,6 @@ class TranscriptionService {
         throw new Error('HUGGINGFACE_API_KEY çevre değişkeni ayarlanmamış');
       }
 
-      // Node-fetch'i dinamik olarak import et
-      const fetch = (await import('node-fetch')).default;
-
       // Geçici dosya oluştur
       const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
       await writeFileAsync(tempFilePath, audioBuffer);
@@ -69,7 +68,7 @@ class TranscriptionService {
       form.append('language', options.language || 'tr');
 
       // Model seçimi
-      let modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-large-v3';
+      let modelEndpoint = 'https://api-inference.huggingface.co/models/openai/whisper-small';
       
       // Eğer options içinde model belirtilmişse onu kullan
       if (options.model) {
@@ -108,7 +107,7 @@ class TranscriptionService {
           console.log(`HuggingFace API isteği gönderiliyor (Deneme ${retryCount + 1}/${maxRetries})...`);
           
           // HuggingFace API'ya gönder
-          response = await fetch(
+          response = await nodeFetch(
             modelEndpoint,
             {
               method: 'POST',
@@ -157,7 +156,8 @@ class TranscriptionService {
   }
 }
 
-exports.handler = async function(event, context) {
+// Netlify Function handler
+const handler = async function(event, context) {
   // POST isteği değilse hata ver
   if (event.httpMethod !== 'POST') {
     return {
@@ -231,4 +231,6 @@ exports.handler = async function(event, context) {
       })
     };
   }
-}; 
+};
+
+export { handler }; 
