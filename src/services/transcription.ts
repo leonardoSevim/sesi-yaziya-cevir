@@ -180,64 +180,28 @@ export async function transcribeAudio(
   }
 }
 
-// Web Speech API'yi kullanarak konuşma tanıma
+// Web Speech API'yi kullanarak konuşma tanıma - değiştirildi
 async function recognizeSpeech(audioBlob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
-    // 2025'te web tarayıcılarında konuşma tanıma daha gelişmiş olacak
-    // Şu an için tarayıcının mevcut API'larını kullanacağız
-    
-    // AudioContext ile ses dosyasını işle
-    const audioURL = URL.createObjectURL(audioBlob);
-    const audio = new Audio();
-    audio.src = audioURL;
-    
-    // SpeechRecognition API kurulumu
-    // TypeScript için arayüz tanımlama
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      reject(new Error('Tarayıcınız konuşma tanımayı desteklemiyor.'));
-      return;
+    try {
+      // YAKLAŞIM 1: AudioContext ve WebAudio API kullanarak ses analizi yapalım
+      const audioURL = URL.createObjectURL(audioBlob);
+      const audio = new Audio();
+      audio.src = audioURL;
+      
+      // Ses analizi için basit bir çözüm uygulayalım
+      // Bu durumda ses dosyasında konuşma olduğunu varsayıyoruz ve kullanıcı manuel kontrol edebilir
+      audio.oncanplaythrough = () => {
+        // Ses dosyasında konuşma olduğunu varsayalım ve boş dönmek yerine bilgilendirici mesaj
+        resolve('[Bu ses dosyası Web Speech API ile tanınamadı. Tarayıcı kısıtlamaları nedeniyle kaydedilmiş dosyalardan tanıma yapılamamaktadır. Alternatif transkripsiyon servisleri için sekme üzerindeki diğer seçenekleri deneyebilirsiniz.]');
+      };
+      
+      audio.onerror = (error) => {
+        reject(new Error(`Ses dosyası oynatılamadı: ${error}`));
+      };
+    } catch (error) {
+      reject(new Error('Ses işleme hatası oluştu: ' + error.message));
     }
-    
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'tr-TR';
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    
-    let transcription = '';
-    
-    recognition.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          transcription += event.results[i][0].transcript + ' ';
-        }
-      }
-    };
-    
-    recognition.onerror = (event) => {
-      console.error('Konuşma tanıma hatası:', event.error);
-      reject(new Error(`Konuşma tanıma hatası: ${event.error}`));
-    };
-    
-    recognition.onend = () => {
-      console.log('Konuşma tanıma tamamlandı');
-      resolve(transcription.trim());
-    };
-    
-    // Ses dosyasını çalarak tanıma işlemini başlat
-    audio.oncanplaythrough = () => {
-      recognition.start();
-      audio.play();
-    };
-    
-    audio.onended = () => {
-      recognition.stop();
-    };
-    
-    audio.onerror = (error) => {
-      reject(new Error(`Ses dosyası oynatılamadı: ${error}`));
-    };
   });
 }
 

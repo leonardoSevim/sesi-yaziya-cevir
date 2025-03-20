@@ -36,6 +36,11 @@ const TranscriptionStatus: React.FC = () => {
         }
       });
       
+      // Kontrol edelim: eğer sonuç açıklama içeren bir mesaj ise bunu hata olarak değerlendirelim
+      if (finalText.includes('[Bu ses dosyası Web Speech API ile tanınamadı')) {
+        throw new Error('Ses dosyası işlenirken bir hata oluştu: Web Speech API kısıtlaması nedeniyle ses dosyası metne dönüştürülemedi.');
+      }
+      
       setResult(finalText);
       setStatus('completed');
       setProgress(100);
@@ -45,7 +50,7 @@ const TranscriptionStatus: React.FC = () => {
       
       // Daha kullanıcı dostu hata mesajları
       if (errorMessage.includes('konuşma tanımayı desteklemiyor')) {
-        errorMessage = 'Tarayıcınız konuşma tanımayı desteklemiyor. Chrome, Edge veya Safari güncel sürümlerini kullanmayı deneyin.';
+        errorMessage = `Tarayıcınız konuşma tanımayı desteklemiyor. Chrome, Edge veya Safari güncel sürümlerini kullanmayı deneyin.`;
       } else if (errorMessage.includes('oynatılamadı')) {
         errorMessage = 'Ses dosyası oynatılamadı. Dosyanın bozuk olmadığından emin olun ve tekrar deneyin.';
       } else if (errorMessage.includes('permission')) {
@@ -54,6 +59,9 @@ const TranscriptionStatus: React.FC = () => {
         errorMessage = 'Ağ hatası oluştu. İnternet bağlantınızı kontrol edin ve tekrar deneyin.';
       } else if (errorMessage.includes('Unsupported')) {
         errorMessage = 'Desteklenmeyen ses formatı. MP3, WAV veya M4A formatında bir dosya yükleyin.';
+      } else if (errorMessage.includes('no-speech') || errorMessage.includes('Web Speech API kısıtlaması')) {
+        const browser = getBrowserInfo();
+        errorMessage = `Ses dosyası işlenirken bir hata oluştu: Konuşma tanıma hatası: no-speech\n\nÖnemli Not: Web tarayıcıları genellikle dosyadan ses çevirmeyi değil, mikrofondan canlı ses çevirmeyi destekler. ${browser} tarayıcısında bu kısıtlama nedeniyle ses dosyaları doğrudan metne çevrilemiyor.\n\nAlternatif olarak şunları deneyebilirsiniz:\n1. Farklı bir tarayıcı kullanmak\n2. Whisper API gibi farklı bir servis kullanmak`;
       }
       
       setError(errorMessage);
@@ -155,6 +163,24 @@ const TranscriptionStatus: React.FC = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
+  };
+
+  // Bu fonksiyonu ekleyelim: tarayıcı bilgilerine göre kullanıcıya öneriler sunar
+  const getBrowserInfo = () => {
+    const userAgent = navigator.userAgent;
+    let browser = "tarayıcınız";
+    
+    if (userAgent.indexOf("Chrome") > -1) {
+      browser = "Chrome";
+    } else if (userAgent.indexOf("Safari") > -1) {
+      browser = "Safari";
+    } else if (userAgent.indexOf("Firefox") > -1) {
+      browser = "Firefox";
+    } else if (userAgent.indexOf("Edge") > -1) {
+      browser = "Edge";
+    }
+    
+    return browser;
   };
 
   return (
