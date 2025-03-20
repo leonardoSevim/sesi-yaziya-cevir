@@ -5,7 +5,6 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
-    include: ['@xenova/transformers'],
     esbuildOptions: {
       target: 'esnext',
       supported: {
@@ -24,13 +23,7 @@ export default defineConfig({
   build: {
     target: 'esnext',
     rollupOptions: {
-      external: [],
-      output: {
-        manualChunks: {
-          transformers: ['@xenova/transformers'],
-          onnx: ['onnxruntime-web']
-        }
-      }
+      external: []
     },
     sourcemap: true
   },
