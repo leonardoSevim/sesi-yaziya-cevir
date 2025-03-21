@@ -15,18 +15,7 @@ import OfflineTranscriptionService from '../services/offlineTranscriptionService
 import { Languages } from '../constants/languages';
 import '../styles/HomePage.css';
 
-// Sabit dil listesi
-const Languages = {
-  'tr-TR': 'Türkçe',
-  'en-US': 'İngilizce (ABD)',
-  'en-GB': 'İngilizce (Birleşik Krallık)',
-  'fr-FR': 'Fransızca',
-  'de-DE': 'Almanca',
-  'es-ES': 'İspanyolca',
-  'it-IT': 'İtalyanca',
-  'ru-RU': 'Rusça',
-  'auto': 'Otomatik Tanıma'
-};
+// Constants ve diğer tanımlamalar buraya gelecek
 
 const HomePage = () => {
   const [transcription, setTranscription] = useState('');
