@@ -10,10 +10,23 @@ import {
   Volume2,
   Info
 } from 'lucide-react';
-import WebSpeechService from '../services/webSpeechService';
+import webSpeechService from '../services/webSpeechService';
 import OfflineTranscriptionService from '../services/offlineTranscriptionService';
 import { Languages } from '../constants/languages';
 import '../styles/HomePage.css';
+
+// Sabit dil listesi
+const Languages = {
+  'tr-TR': 'Türkçe',
+  'en-US': 'İngilizce (ABD)',
+  'en-GB': 'İngilizce (Birleşik Krallık)',
+  'fr-FR': 'Fransızca',
+  'de-DE': 'Almanca',
+  'es-ES': 'İspanyolca',
+  'it-IT': 'İtalyanca',
+  'ru-RU': 'Rusça',
+  'auto': 'Otomatik Tanıma'
+};
 
 const HomePage = () => {
   const [transcription, setTranscription] = useState('');
@@ -32,7 +45,7 @@ const HomePage = () => {
       setIsLoading(true);
       setError(null);
       
-      const initialized = await WebSpeechService.initialize();
+      const initialized = await webSpeechService.initialize();
       
       if (!initialized) {
         setError('Web Speech API başlatılamadı.');
@@ -68,7 +81,7 @@ const HomePage = () => {
       setProgress(0);
       
       // Web Speech servisinin hazır olduğundan emin ol
-      if (!WebSpeechService.isAvailable) {
+      if (!webSpeechService.isAvailable) {
         await initializeWebSpeech();
       }
       
@@ -77,7 +90,7 @@ const HomePage = () => {
       
       // Ses dosyasını işle ve sonuçları al
       setAudioPlaying(true);
-      const result = await WebSpeechService.transcribe(file, { language });
+      const result = await webSpeechService.transcribe(file, { language });
       setAudioPlaying(false);
       
       // Sonuçları göster
@@ -107,12 +120,12 @@ const HomePage = () => {
       setTranscription('Konuşmaya başlayabilirsiniz...');
       
       // Web Speech servisinin hazır olduğundan emin ol
-      if (!WebSpeechService.isAvailable) {
+      if (!webSpeechService.isAvailable) {
         await initializeWebSpeech();
       }
       
       // Mikrofonu kullanarak tanıma başlat
-      const result = await WebSpeechService.transcribe(null, { language });
+      const result = await webSpeechService.transcribe(null, { language });
       
       // Sonuçları göster
       setTranscription(result.text);
